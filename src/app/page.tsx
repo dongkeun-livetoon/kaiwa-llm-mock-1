@@ -145,7 +145,7 @@ export default function ChatPage() {
                   <span className="text-5xl">{characterEmojis[selectedCharacterId] || '👤'}</span>
                 </div>
                 <h1 className="text-2xl font-bold text-slate-800 mb-2">
-                  {selectedCharacter?.displayName}와 대화하기
+                  {selectedCharacter?.displayName}と会話する
                 </h1>
                 <p className="text-slate-500 mb-6">
                   {selectedCharacter?.description}
@@ -154,10 +154,10 @@ export default function ChatPage() {
                   onClick={startConversation}
                   className="px-8 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5"
                 >
-                  대화 시작하기
+                  会話を始める
                 </button>
                 <p className="text-xs text-slate-400 mt-4">
-                  프롬프트: {activePrompt?.version} · 모델: {LLM_MODELS.find(m => m.id === selectedModel)?.name}
+                  プロンプト: {activePrompt?.version} · モデル: {LLM_MODELS.find(m => m.id === selectedModel)?.name}
                 </p>
               </div>
             </div>
@@ -181,7 +181,7 @@ export default function ChatPage() {
                   onClick={endConversation}
                   className="px-4 py-2 text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors text-sm font-medium"
                 >
-                  대화 종료
+                  会話を終了
                 </button>
               </div>
 
@@ -250,7 +250,7 @@ export default function ChatPage() {
                         sendMessage();
                       }
                     }}
-                    placeholder="메시지를 입력하세요..."
+                    placeholder="メッセージを入力..."
                     className="flex-1 px-4 py-3 border border-slate-200 rounded-xl resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     rows={1}
                   />
@@ -259,7 +259,7 @@ export default function ChatPage() {
                     disabled={!inputMessage.trim() || isLoading}
                     className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg transition-all"
                   >
-                    전송
+                    送信
                   </button>
                 </div>
               </div>
@@ -271,7 +271,7 @@ export default function ChatPage() {
         <div className="col-span-4 space-y-4 overflow-y-auto">
           {/* Character Selection */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-            <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wide mb-4">캐릭터 선택</h3>
+            <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wide mb-4">キャラクター選択</h3>
             <div className="space-y-2">
               {mockCharacters.map((char) => (
                 <button
@@ -296,12 +296,12 @@ export default function ChatPage() {
 
           {/* LLM Settings */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-            <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wide mb-4">LLM 설정</h3>
+            <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wide mb-4">LLM設定</h3>
 
             <div className="space-y-4">
               {/* Model Selection */}
               <div>
-                <label className="block text-sm text-slate-600 mb-2">모델</label>
+                <label className="block text-sm text-slate-600 mb-2">モデル</label>
                 <select
                   value={selectedModel}
                   onChange={(e) => setSelectedModel(e.target.value)}
@@ -359,14 +359,14 @@ export default function ChatPage() {
                   disabled={isConversationStarted}
                   className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-60"
                 />
-                <span className="text-sm text-slate-700">스트리밍 응답</span>
+                <span className="text-sm text-slate-700">ストリーミング応答</span>
               </label>
             </div>
           </div>
 
           {/* Content Settings */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-            <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wide mb-4">콘텐츠 설정</h3>
+            <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wide mb-4">コンテンツ設定</h3>
 
             <div className="space-y-3">
               <label className="flex items-center gap-3 cursor-pointer">
@@ -378,8 +378,8 @@ export default function ChatPage() {
                   className="w-5 h-5 rounded border-slate-300 text-red-600 focus:ring-red-500 disabled:opacity-60"
                 />
                 <div>
-                  <span className="text-sm text-slate-700 font-medium">NSFW 허용</span>
-                  <p className="text-xs text-slate-400">성인 콘텐츠 필터 해제</p>
+                  <span className="text-sm text-slate-700 font-medium">NSFW許可</span>
+                  <p className="text-xs text-slate-400">成人向けコンテンツフィルター解除</p>
                 </div>
               </label>
             </div>
@@ -387,17 +387,17 @@ export default function ChatPage() {
 
           {/* Prompt Info */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-            <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wide mb-4">프롬프트 정보</h3>
+            <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wide mb-4">プロンプト情報</h3>
             {activePrompt && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">버전</span>
+                  <span className="text-sm text-slate-600">バージョン</span>
                   <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-medium">
                     {activePrompt.version}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">설명</span>
+                  <span className="text-sm text-slate-600">説明</span>
                   <span className="text-xs text-slate-500">{activePrompt.description}</span>
                 </div>
                 <div className="pt-2 border-t border-slate-100 mt-2">
