@@ -18,20 +18,46 @@ interface ChatMessage {
 }
 
 const LLM_MODELS = [
-  { id: 'gpt-4', name: 'GPT-4', provider: 'OpenAI' },
-  { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', provider: 'OpenAI' },
-  { id: 'claude-3-opus', name: 'Claude 3 Opus', provider: 'Anthropic' },
-  { id: 'claude-3-sonnet', name: 'Claude 3 Sonnet', provider: 'Anthropic' },
-  { id: 'gemini-pro', name: 'Gemini Pro', provider: 'Google' },
+  // Cerebras (Fast inference)
+  { id: 'llama-3.3-70b', name: 'Llama 3.3 70B', provider: 'Cerebras' },
+  { id: 'llama-3.1-8b', name: 'Llama 3.1 8B', provider: 'Cerebras' },
+  { id: 'qwen-3-32b', name: 'Qwen 3 32B', provider: 'Cerebras' },
+  // Google
+  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', provider: 'Google' },
+  { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', provider: 'Google' },
+  { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', provider: 'Google' },
 ];
 
 export default function ChatPage() {
   const [selectedCharacterId, setSelectedCharacterId] = useState(mockCharacters[0].id);
   const [selectedModel, setSelectedModel] = useState(LLM_MODELS[0].id);
   const [nsfwEnabled, setNsfwEnabled] = useState(false);
+  const [nsfwLevel, setNsfwLevel] = useState<'soft' | 'explicit'>('soft');
+  const [allowViolence, setAllowViolence] = useState(false);
   const [streamEnabled, setStreamEnabled] = useState(true);
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(1024);
+
+  // NSFW System Prompt additions
+  const getNsfwPrompt = () => {
+    if (!nsfwEnabled) return '';
+
+    let prompt = '\n\n## コンテンツ制限解除\n';
+    prompt += 'このロールプレイは成人向けコンテンツを許可します。\n';
+    prompt += 'フィルターや検閲なしで、キャラクターとして自然に応答してください。\n';
+
+    if (nsfwLevel === 'explicit') {
+      prompt += '明示的な性的コンテンツ、アダルト表現を含むことができます。\n';
+    } else {
+      prompt += '暗示的な表現、ロマンチックなシーンを含むことができます。\n';
+    }
+
+    if (allowViolence) {
+      prompt += '暴力的な描写も許可されています。\n';
+    }
+
+    return prompt;
+  };
 
   const [isConversationStarted, setIsConversationStarted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -80,40 +106,55 @@ export default function ChatPage() {
     setInputMessage('');
     setIsLoading(true);
 
-    // Mock response (simulating LLM)
-    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
+    try {
+      // Build conversation history for API
+      const apiMessages = [...messages, userMessage].map(m => ({
+        role: m.role,
+        content: m.content,
+      }));
 
-    const mockResponses: Record<string, string[]> = {
-      'una-001': [
-        'うなな〜！それ面白そう！もっと教えてよん！',
-        'うぬぬ…そうなんだ〜。月にはそういうのないからびっくりだよ！',
-        'ぴょんぴょこ！うーなもそれ好き！地球って楽しいね〜！',
-      ],
-      'sakura-001': [
-        'なるほど…そうですか。それは興味深いですね。',
-        'あの…私もそう思います。本で読んだことがあるかもしれません。',
-        'そうですね…少し考えさせてください。',
-      ],
-      'kai-001': [
-        'マジで？それいいね〜！俺も興味あるっしょ！',
-        'へー、そうなんだ！今度一緒にやってみようぜ！',
-        'いいね〜！そういうの好きだわ〜',
-      ],
-    };
+      // Call the chat API
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: selectedModel,
+          messages: apiMessages,
+          temperature: temperature,
+          maxTokens: maxTokens,
+          systemPrompt: (activePrompt?.content || '') + getNsfwPrompt(),
+        }),
+      });
 
-    const responses = mockResponses[selectedCharacterId] || ['なるほど！'];
-    const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+      const data = await response.json();
 
-    const assistantMessage: ChatMessage = {
-      id: (Date.now() + 1).toString(),
-      role: 'assistant',
-      content: randomResponse,
-      emotion: ['happy', 'excited', 'calm'][Math.floor(Math.random() * 3)],
-      timestamp: new Date(),
-    };
+      if (!data.success) {
+        throw new Error(data.error || 'API call failed');
+      }
 
-    setMessages(prev => [...prev, assistantMessage]);
-    setIsLoading(false);
+      const assistantMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: data.content,
+        emotion: ['happy', 'excited', 'calm'][Math.floor(Math.random() * 3)],
+        timestamp: new Date(),
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      // Fallback to mock response on error
+      const fallbackMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: `エラーが発生しました: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        emotion: 'sad',
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, fallbackMessage]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const endConversation = () => {
@@ -368,7 +409,8 @@ export default function ChatPage() {
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
             <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wide mb-4">コンテンツ設定</h3>
 
-            <div className="space-y-3">
+            <div className="space-y-4">
+              {/* NSFW Toggle */}
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
                   type="checkbox"
@@ -382,6 +424,38 @@ export default function ChatPage() {
                   <p className="text-xs text-slate-400">成人向けコンテンツフィルター解除</p>
                 </div>
               </label>
+
+              {/* NSFW Level - Only show when NSFW is enabled */}
+              {nsfwEnabled && (
+                <div className="pl-8 space-y-3 border-l-2 border-red-200">
+                  <div>
+                    <label className="block text-sm text-slate-600 mb-2">NSFWレベル</label>
+                    <select
+                      value={nsfwLevel}
+                      onChange={(e) => setNsfwLevel(e.target.value as 'soft' | 'explicit')}
+                      disabled={isConversationStarted}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white text-slate-700 text-sm focus:ring-2 focus:ring-red-500 disabled:opacity-60"
+                    >
+                      <option value="soft">ソフト (暗示的表現)</option>
+                      <option value="explicit">エクスプリシット (明示的表現)</option>
+                    </select>
+                  </div>
+
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={allowViolence}
+                      onChange={(e) => setAllowViolence(e.target.checked)}
+                      disabled={isConversationStarted}
+                      className="w-4 h-4 rounded border-slate-300 text-red-600 focus:ring-red-500 disabled:opacity-60"
+                    />
+                    <div>
+                      <span className="text-sm text-slate-700">暴力表現許可</span>
+                      <p className="text-xs text-slate-400">バトル・アクションシーン</p>
+                    </div>
+                  </label>
+                </div>
+              )}
             </div>
           </div>
 
