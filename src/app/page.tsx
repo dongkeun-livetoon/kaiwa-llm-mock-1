@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { mockCharacters, mockPromptVersions } from '@/data/mockData';
+import { addSession, updateSession, addMessage, StoredSession, StoredMessage } from '@/lib/storage';
 
 const characterEmojis: Record<string, string> = {
   'una-001': '🐰',
@@ -62,6 +63,7 @@ export default function ChatPage() {
   };
 
   const [isConversationStarted, setIsConversationStarted] = useState(false);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -77,7 +79,23 @@ export default function ChatPage() {
   }, [messages]);
 
   const startConversation = () => {
+    const sessionId = `session-${Date.now()}`;
+    setCurrentSessionId(sessionId);
     setIsConversationStarted(true);
+
+    // Create session in local storage
+    const newSession: StoredSession = {
+      id: sessionId,
+      characterId: selectedCharacterId,
+      characterName: selectedCharacter?.displayName || '',
+      promptVersion: activePrompt?.version || 'unknown',
+      model: selectedModel,
+      startedAt: new Date().toISOString(),
+      messageCount: 0,
+      nsfwEnabled: nsfwEnabled,
+    };
+    addSession(newSession);
+
     // Add initial greeting from character
     const greetings: Record<string, string> = {
       'una-001': 'うなな〜！やっほー！うーなだよ！今日は何して遊ぶ？',
@@ -85,17 +103,31 @@ export default function ChatPage() {
       'kai-001': 'よっ！元気？今日もいい天気だね〜！',
     };
 
-    setMessages([{
+    const greetingContent = greetings[selectedCharacterId] || 'こんにちは！';
+    const greetingMessage: ChatMessage = {
       id: Date.now().toString(),
       role: 'assistant',
-      content: greetings[selectedCharacterId] || 'こんにちは！',
+      content: greetingContent,
       emotion: 'happy',
       timestamp: new Date(),
-    }]);
+    };
+
+    // Save greeting to local storage
+    const storedGreeting: StoredMessage = {
+      id: greetingMessage.id,
+      sessionId: sessionId,
+      role: 'assistant',
+      content: greetingContent,
+      emotion: 'happy',
+      timestamp: new Date().toISOString(),
+    };
+    addMessage(storedGreeting);
+
+    setMessages([greetingMessage]);
   };
 
   const sendMessage = async () => {
-    if (!inputMessage.trim() || isLoading) return;
+    if (!inputMessage.trim() || isLoading || !currentSessionId) return;
 
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
@@ -103,6 +135,16 @@ export default function ChatPage() {
       content: inputMessage.trim(),
       timestamp: new Date(),
     };
+
+    // Save user message to local storage
+    const storedUserMessage: StoredMessage = {
+      id: userMessage.id,
+      sessionId: currentSessionId,
+      role: 'user',
+      content: userMessage.content,
+      timestamp: new Date().toISOString(),
+    };
+    addMessage(storedUserMessage);
 
     setMessages(prev => [...prev, userMessage]);
     setInputMessage('');
@@ -134,13 +176,25 @@ export default function ChatPage() {
         throw new Error(data.error || 'API call failed');
       }
 
+      const emotion = ['happy', 'excited', 'calm'][Math.floor(Math.random() * 3)];
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: data.content,
-        emotion: ['happy', 'excited', 'calm'][Math.floor(Math.random() * 3)],
+        emotion: emotion,
         timestamp: new Date(),
       };
+
+      // Save assistant message to local storage
+      const storedAssistantMessage: StoredMessage = {
+        id: assistantMessage.id,
+        sessionId: currentSessionId,
+        role: 'assistant',
+        content: data.content,
+        emotion: emotion,
+        timestamp: new Date().toISOString(),
+      };
+      addMessage(storedAssistantMessage);
 
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
@@ -153,6 +207,18 @@ export default function ChatPage() {
         emotion: 'sad',
         timestamp: new Date(),
       };
+
+      // Save error message to local storage too
+      const storedErrorMessage: StoredMessage = {
+        id: fallbackMessage.id,
+        sessionId: currentSessionId,
+        role: 'assistant',
+        content: fallbackMessage.content,
+        emotion: 'sad',
+        timestamp: new Date().toISOString(),
+      };
+      addMessage(storedErrorMessage);
+
       setMessages(prev => [...prev, fallbackMessage]);
     } finally {
       setIsLoading(false);
@@ -160,7 +226,15 @@ export default function ChatPage() {
   };
 
   const endConversation = () => {
+    // Update session with end time
+    if (currentSessionId) {
+      updateSession(currentSessionId, {
+        endedAt: new Date().toISOString(),
+      });
+    }
+
     setIsConversationStarted(false);
+    setCurrentSessionId(null);
     setMessages([]);
   };
 
