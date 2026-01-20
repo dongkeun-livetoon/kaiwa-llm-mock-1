@@ -11,8 +11,8 @@ interface ImageGenerateRequest {
   characterId: string;
   width?: number;
   height?: number;
-  referenceImage?: string; // base64
-  referenceMethod?: 'none' | 'vibe';
+  referenceImage?: string; // base64 (without data:image/xxx;base64, prefix)
+  referenceMethod?: 'none' | 'vibe' | 'img2img';
   referenceStrength?: number;
   nsfw?: boolean;
   nsfwLevel?: 'soft' | 'explicit';
@@ -106,22 +106,45 @@ export async function POST(request: NextRequest) {
       noise_schedule: 'native', // Use native noise schedule
     };
 
-    // Add Vibe Transfer for character consistency (if enabled)
-    if (referenceImage && referenceMethod === 'vibe') {
-      parameters.reference_image_multiple = [referenceImage];
-      parameters.reference_information_extracted_multiple = [1]; // Extract style info
-      parameters.reference_strength_multiple = [referenceStrength]; // Apply strength
+    // Strip base64 header if present (NovelAI needs pure base64)
+    let cleanedRefImage = referenceImage;
+    if (referenceImage && referenceImage.includes(',')) {
+      cleanedRefImage = referenceImage.split(',')[1];
+    }
+
+    // Determine action based on reference method
+    let action = 'generate';
+
+    if (cleanedRefImage && referenceMethod === 'vibe') {
+      // Vibe Transfer - maintains style/character consistency
+      parameters.reference_image_multiple = [cleanedRefImage];
+      parameters.reference_information_extracted_multiple = [1];
+      parameters.reference_strength_multiple = [referenceStrength];
+    } else if (cleanedRefImage && referenceMethod === 'img2img') {
+      // img2img - direct image modification
+      // IMPORTANT: image must be inside parameters, not at top level
+      action = 'img2img';
+      parameters.image = cleanedRefImage;
+      parameters.strength = referenceStrength;
+      parameters.noise = 0.1;
     }
     // 'none' - no reference, pure text2image
 
     const requestBody = {
       input: fullPrompt,
       model: 'nai-diffusion-3',
-      action: 'generate',
+      action,
       parameters,
     };
 
-    console.log('NovelAI request:', { referenceMethod, hasVibe: !!referenceImage && referenceMethod === 'vibe', width, height });
+    console.log('NovelAI request:', {
+      action,
+      referenceMethod,
+      hasImage: !!cleanedRefImage,
+      imageLength: cleanedRefImage?.length || 0,
+      width,
+      height
+    });
 
     const response = await fetch('https://image.novelai.net/ai/generate-image', {
       method: 'POST',
