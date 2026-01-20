@@ -177,23 +177,41 @@ export default function ChatPage() {
     }
   };
 
-  // Helper to fetch image and convert to base64
-  const imageToBase64 = async (imageUrl: string): Promise<string | null> => {
+  // Helper: resize image to target dimensions with padding
+  const resizeImageForNovelAI = async (imageUrl: string, targetWidth: number, targetHeight: number): Promise<string | null> => {
     try {
-      const response = await fetch(imageUrl);
-      const blob = await response.blob();
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64 = reader.result as string;
-          // Remove data URL prefix to get just the base64 data
-          const base64Data = base64.split(',')[1];
-          resolve(base64Data);
-        };
-        reader.readAsDataURL(blob);
+      const img = new window.Image();
+      img.crossOrigin = 'anonymous';
+
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = reject;
+        img.src = imageUrl;
       });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const ctx = canvas.getContext('2d')!;
+
+      // Fill with white background
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, targetWidth, targetHeight);
+
+      // Calculate scaling to fit image while maintaining aspect ratio
+      const scale = Math.min(targetWidth / img.width, targetHeight / img.height);
+      const scaledWidth = img.width * scale;
+      const scaledHeight = img.height * scale;
+      const x = (targetWidth - scaledWidth) / 2;
+      const y = (targetHeight - scaledHeight) / 2;
+
+      ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
+
+      // Get base64 without data URL prefix
+      const dataUrl = canvas.toDataURL('image/png');
+      return dataUrl.split(',')[1];
     } catch (error) {
-      console.error('Failed to convert image to base64:', error);
+      console.error('Failed to resize image:', error);
       return null;
     }
   };
@@ -230,14 +248,17 @@ export default function ChatPage() {
         return null;
       }
 
-      // Step 2: Get reference image from character avatar
+      // Step 2: Prepare reference image (resize avatar to NovelAI dimensions)
       let referenceImage: string | null = null;
+      const targetWidth = 832;
+      const targetHeight = 1216;
+
       if (selectedCharacter?.avatarUrl) {
-        console.log('Fetching reference image from:', selectedCharacter.avatarUrl);
-        referenceImage = await imageToBase64(selectedCharacter.avatarUrl);
+        console.log('Resizing reference image to', targetWidth, 'x', targetHeight);
+        referenceImage = await resizeImageForNovelAI(selectedCharacter.avatarUrl, targetWidth, targetHeight);
       }
 
-      // Step 3: Generate image if judge approves
+      // Step 3: Generate image
       console.log('Generating image with prompt:', judgeData.imagePrompt, { nsfw: judgeData.nsfw, hasReference: !!referenceImage });
 
       const generateResponse = await fetch('/api/image/generate', {
@@ -248,8 +269,10 @@ export default function ChatPage() {
           characterId: selectedCharacterId,
           nsfw: nsfwEnabled && judgeData.nsfw,
           nsfwLevel,
-          referenceImage, // Pass avatar as reference for img2img
-          referenceStrength: 0.6, // Balance between reference and prompt
+          width: targetWidth,
+          height: targetHeight,
+          referenceImage,
+          referenceStrength: 0.4, // Lower strength to allow more variation from prompt
         }),
       });
 
