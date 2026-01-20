@@ -12,7 +12,7 @@ interface ImageGenerateRequest {
   width?: number;
   height?: number;
   referenceImage?: string; // base64
-  referenceMethod?: 'none' | 'vibe' | 'img2img';
+  referenceMethod?: 'none' | 'vibe';
   referenceStrength?: number;
   nsfw?: boolean;
   nsfwLevel?: 'soft' | 'explicit';
@@ -106,31 +106,22 @@ export async function POST(request: NextRequest) {
       noise_schedule: 'native', // Use native noise schedule
     };
 
-    // Add reference based on method
-    let action = 'generate';
-
+    // Add Vibe Transfer for character consistency (if enabled)
     if (referenceImage && referenceMethod === 'vibe') {
-      // Vibe Transfer - maintains style/character consistency
       parameters.reference_image_multiple = [referenceImage];
       parameters.reference_information_extracted_multiple = [1]; // Extract style info
       parameters.reference_strength_multiple = [referenceStrength]; // Apply strength
-    } else if (referenceImage && referenceMethod === 'img2img') {
-      // img2img - direct image modification
-      action = 'img2img';
-      parameters.image = referenceImage;
-      parameters.strength = referenceStrength;
-      parameters.noise = 0.1;
     }
     // 'none' - no reference, pure text2image
 
     const requestBody = {
       input: fullPrompt,
       model: 'nai-diffusion-3',
-      action,
+      action: 'generate',
       parameters,
     };
 
-    console.log('NovelAI request:', { action, referenceMethod, width, height });
+    console.log('NovelAI request:', { referenceMethod, hasVibe: !!referenceImage && referenceMethod === 'vibe', width, height });
 
     const response = await fetch('https://image.novelai.net/ai/generate-image', {
       method: 'POST',
