@@ -206,7 +206,7 @@ ${characterName}: ${lastAssistantMessage}
 
     const systemPrompt = getJudgeSystemPrompt(nsfwEnabled, nsfwLevel);
 
-    // Use Cerebras Llama for judge (no NSFW filter)
+    // Use Cerebras Qwen for judge (potentially less filtered than Llama)
     const response = await fetch(
       'https://api.cerebras.ai/v1/chat/completions',
       {
@@ -216,7 +216,7 @@ ${characterName}: ${lastAssistantMessage}
           'Authorization': `Bearer ${CEREBRAS_API_KEY}`,
         },
         body: JSON.stringify({
-          model: 'llama-3.3-70b',
+          model: 'qwen-3-32b',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
@@ -249,6 +249,14 @@ ${characterName}: ${lastAssistantMessage}
     const responseText = data.choices[0].message.content;
     console.log('Judge raw response:', responseText);
 
+    // Check for LLM refusal patterns
+    const refusalPatterns = [
+      /I can't/i, /I cannot/i, /I'm unable/i, /I am unable/i,
+      /できません/, /答えられません/, /生成できません/,
+      /not able to/i, /won't be able/i, /refuse/i,
+    ];
+    const isRefusal = refusalPatterns.some(p => p.test(responseText));
+
     // Parse JSON from response
     let judgeResult: JudgeResponse;
     try {
@@ -263,6 +271,40 @@ ${characterName}: ${lastAssistantMessage}
         shouldGenerate: false,
         reason: 'パース失敗',
       };
+    }
+
+    // Fallback: If LLM refused but NSFW is enabled, use rule-based detection
+    if ((isRefusal || !judgeResult.shouldGenerate) && nsfwEnabled && nsfwLevel === 'explicit') {
+      const combinedText = (lastAssistantMessage + ' ' + historyText).toLowerCase();
+
+      // Explicit content keywords
+      const nudeKeywords = ['裸', 'ヌード', '全裸', '服を脱', '脱いで', '見せて', 'nude', 'naked', 'おまんこ', 'まんこ', 'pussy', '性器'];
+      const toplessKeywords = ['おっぱい', '胸', 'breasts', 'topless', '乳首'];
+      const spreadKeywords = ['開いて', '広げて', 'spread', '脚を開'];
+      const touchKeywords = ['触って', '触る', '自慰', 'masturbat', 'touch'];
+      const climaxKeywords = ['イク', 'イッちゃ', 'orgasm', 'climax', 'アヘ顔', '絶頂'];
+
+      const hasNude = nudeKeywords.some(k => combinedText.includes(k));
+      const hasTopless = toplessKeywords.some(k => combinedText.includes(k));
+      const hasSpread = spreadKeywords.some(k => combinedText.includes(k));
+      const hasTouch = touchKeywords.some(k => combinedText.includes(k));
+      const hasClimax = climaxKeywords.some(k => combinedText.includes(k));
+
+      if (hasNude || hasTopless || hasSpread || hasTouch || hasClimax) {
+        console.log('Fallback: Rule-based NSFW detection triggered');
+        judgeResult = {
+          shouldGenerate: true,
+          reason: 'Rule-based fallback (LLM refused)',
+          clothingState: hasNude ? 'nude' : (hasTopless ? 'topless' : 'underwear'),
+          poseState: hasSpread ? 'spread' : (hasClimax ? 'lying_on_back' : 'standing'),
+          locationState: 'bedroom',
+          actionState: hasClimax ? 'climax' : (hasTouch ? 'touching_self' : 'none'),
+          imagePrompt: `${hasNude ? 'nude, naked, pussy, vagina, exposed genitals' : ''} ${hasTopless ? 'topless, bare breasts, nipples' : ''} ${hasSpread ? 'spread legs, exposed pussy' : ''} ${hasTouch ? 'masturbation, fingering' : ''} ${hasClimax ? 'ahegao, orgasm, pleasure face' : ''}, looking at viewer, bedroom`.trim().replace(/\s+/g, ' '),
+          emotion: hasClimax ? 'pleasure' : 'seductive',
+          scene: 'Explicit scene (fallback)',
+          nsfw: true,
+        };
+      }
     }
 
     console.log('Judge decision:', judgeResult);

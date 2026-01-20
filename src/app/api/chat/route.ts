@@ -73,7 +73,16 @@ async function callCerebras(model: string, messages: ChatMessage[], temperature:
     throw new Error('Invalid response from Cerebras API: ' + JSON.stringify(data).slice(0, 100));
   }
 
-  return data.choices[0].message.content;
+  let content = data.choices[0].message.content || '';
+
+  // Clean up Qwen's thinking tags (Chain-of-Thought output)
+  if (modelId.startsWith('qwen')) {
+    content = content.replace(/<think>[\s\S]*?<\/think>/gi, '');
+    content = content.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
+    content = content.trim();
+  }
+
+  return content;
 }
 
 // Gemini API call

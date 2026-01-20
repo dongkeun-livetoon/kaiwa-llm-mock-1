@@ -52,7 +52,7 @@ const LLM_MODELS = [
 export default function ChatPage() {
   const [selectedCharacterId, setSelectedCharacterId] = useState(visibleCharacters[0].id);
   const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState('llama-3.3-70b');
+  const [selectedModel, setSelectedModel] = useState('qwen-3-32b');
   const [nsfwEnabled, setNsfwEnabled] = useState(true); // Default: ON
   const [nsfwLevel, setNsfwLevel] = useState<'soft' | 'explicit'>('explicit'); // Default: explicit
   const [allowViolence, setAllowViolence] = useState(true); // Default: ON
