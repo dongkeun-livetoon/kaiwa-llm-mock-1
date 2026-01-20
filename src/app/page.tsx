@@ -61,6 +61,7 @@ export default function ChatPage() {
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [imageGenEnabled, setImageGenEnabled] = useState(true); // Default: ON
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [imageRefMethod, setImageRefMethod] = useState<'none' | 'vibe' | 'img2img'>('vibe'); // Reference method
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(1024);
 
@@ -248,18 +249,22 @@ export default function ChatPage() {
         return null;
       }
 
-      // Step 2: Prepare reference image (resize avatar to NovelAI dimensions)
+      // Step 2: Prepare reference image based on selected method
       let referenceImage: string | null = null;
       const targetWidth = 832;
       const targetHeight = 1216;
 
-      if (selectedCharacter?.avatarUrl) {
-        console.log('Resizing reference image to', targetWidth, 'x', targetHeight);
+      if (imageRefMethod !== 'none' && selectedCharacter?.avatarUrl) {
+        console.log('Preparing reference image, method:', imageRefMethod);
         referenceImage = await resizeImageForNovelAI(selectedCharacter.avatarUrl, targetWidth, targetHeight);
       }
 
       // Step 3: Generate image
-      console.log('Generating image with prompt:', judgeData.imagePrompt, { nsfw: judgeData.nsfw, hasReference: !!referenceImage });
+      console.log('Generating image with prompt:', judgeData.imagePrompt, {
+        nsfw: judgeData.nsfw,
+        refMethod: imageRefMethod,
+        hasReference: !!referenceImage
+      });
 
       const generateResponse = await fetch('/api/image/generate', {
         method: 'POST',
@@ -271,8 +276,9 @@ export default function ChatPage() {
           nsfwLevel,
           width: targetWidth,
           height: targetHeight,
-          referenceImage,
-          referenceStrength: 0.4, // Lower strength to allow more variation from prompt
+          referenceImage: imageRefMethod !== 'none' ? referenceImage : null,
+          referenceMethod: imageRefMethod, // 'none' | 'vibe' | 'img2img'
+          referenceStrength: 0.6,
         }),
       });
 
@@ -789,7 +795,47 @@ export default function ChatPage() {
                 </div>
               </label>
               {imageGenEnabled && (
-                <p className="text-xs text-slate-400 pl-8">AIが適切なタイミングでイラストを生成します (NovelAI)</p>
+                <div className="pl-8 space-y-2">
+                  <p className="text-xs text-slate-400">AIが適切なタイミングでイラストを生成します (NovelAI)</p>
+                  {/* Reference Method Selector */}
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => setImageRefMethod('none')}
+                      className={`px-2 py-1 text-xs rounded ${
+                        imageRefMethod === 'none'
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      参照なし
+                    </button>
+                    <button
+                      onClick={() => setImageRefMethod('vibe')}
+                      className={`px-2 py-1 text-xs rounded ${
+                        imageRefMethod === 'vibe'
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      Vibe Transfer
+                    </button>
+                    <button
+                      onClick={() => setImageRefMethod('img2img')}
+                      className={`px-2 py-1 text-xs rounded ${
+                        imageRefMethod === 'img2img'
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      img2img
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    {imageRefMethod === 'none' && 'プロンプトのみで生成'}
+                    {imageRefMethod === 'vibe' && 'アバターのスタイルを参照'}
+                    {imageRefMethod === 'img2img' && 'アバターを直接変換'}
+                  </p>
+                </div>
               )}
             </div>
           </div>

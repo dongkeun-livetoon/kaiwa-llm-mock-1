@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const runtime = 'edge';
+
 const CEREBRAS_API_KEY = process.env.CEREBRAS_API_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GROK_API_KEY = process.env.GROK_API_KEY;

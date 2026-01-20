@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import JSZip from 'jszip';
+import { unzipSync } from 'fflate';
+
+export const runtime = 'edge';
 
 const NOVELAI_API_KEY = process.env.NOVELAI_API_KEY;
 
@@ -10,6 +12,7 @@ interface ImageGenerateRequest {
   width?: number;
   height?: number;
   referenceImage?: string; // base64
+  referenceMethod?: 'none' | 'vibe' | 'img2img';
   referenceStrength?: number;
   nsfw?: boolean;
   nsfwLevel?: 'soft' | 'explicit';
@@ -44,12 +47,13 @@ export async function POST(request: NextRequest) {
       width = 832,
       height = 1216,
       referenceImage,
+      referenceMethod = 'none',
       referenceStrength = 0.6,
       nsfw = false,
       nsfwLevel = 'soft',
     } = body;
 
-    console.log('Image generation request:', { prompt, characterId, hasReference: !!referenceImage, nsfw, nsfwLevel });
+    console.log('Image generation request:', { prompt, characterId, referenceMethod, hasReference: !!referenceImage, nsfw, nsfwLevel });
 
     // Get character base prompt
     const charPrompt = CHARACTER_BASE_PROMPTS[characterId] || {
@@ -102,21 +106,31 @@ export async function POST(request: NextRequest) {
       noise_schedule: 'native', // Use native noise schedule
     };
 
-    // Add Vibe Transfer for character consistency (not img2img)
-    if (referenceImage) {
+    // Add reference based on method
+    let action = 'generate';
+
+    if (referenceImage && referenceMethod === 'vibe') {
+      // Vibe Transfer - maintains style/character consistency
       parameters.reference_image_multiple = [referenceImage];
       parameters.reference_information_extracted_multiple = [1]; // Extract style info
       parameters.reference_strength_multiple = [referenceStrength]; // Apply strength
+    } else if (referenceImage && referenceMethod === 'img2img') {
+      // img2img - direct image modification
+      action = 'img2img';
+      parameters.image = referenceImage;
+      parameters.strength = referenceStrength;
+      parameters.noise = 0.1;
     }
+    // 'none' - no reference, pure text2image
 
     const requestBody = {
       input: fullPrompt,
       model: 'nai-diffusion-3',
-      action: 'generate', // Always use generate, Vibe Transfer is via parameters
+      action,
       parameters,
     };
 
-    console.log('NovelAI request:', { hasVibeTransfer: !!referenceImage, width, height });
+    console.log('NovelAI request:', { action, referenceMethod, width, height });
 
     const response = await fetch('https://image.novelai.net/ai/generate-image', {
       method: 'POST',
@@ -142,10 +156,10 @@ export async function POST(request: NextRequest) {
 
     console.log('NovelAI response size:', zipBuffer.byteLength, 'bytes');
 
-    // Use JSZip to properly extract the image
-    let zip: JSZip;
+    // Use fflate to extract the image (Edge Runtime compatible)
+    let unzipped: Record<string, Uint8Array>;
     try {
-      zip = await JSZip.loadAsync(zipBuffer);
+      unzipped = unzipSync(new Uint8Array(zipBuffer));
     } catch (zipError) {
       // Not a ZIP, try to read as text for error message
       const textContent = new TextDecoder().decode(new Uint8Array(zipBuffer).slice(0, 500));
@@ -157,7 +171,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Find the first PNG file in the ZIP
-    const fileNames = Object.keys(zip.files);
+    const fileNames = Object.keys(unzipped);
     console.log('Files in ZIP:', fileNames);
 
     const pngFile = fileNames.find(name => name.endsWith('.png'));
@@ -169,7 +183,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const pngData = await zip.files[pngFile].async('base64');
+    // Convert Uint8Array to base64 (chunk to avoid stack overflow)
+    const pngBytes = unzipped[pngFile];
+    let binary = '';
+    const chunkSize = 8192;
+    for (let i = 0; i < pngBytes.length; i += chunkSize) {
+      const chunk = pngBytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, Array.from(chunk));
+    }
+    const pngData = btoa(binary);
     console.log('Image extracted successfully:', pngFile, 'base64 length:', pngData.length);
 
     return NextResponse.json({

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const runtime = 'edge';
+
 const GROK_API_KEY = process.env.GROK_API_KEY;
 
 interface JudgeRequest {
