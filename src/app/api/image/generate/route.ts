@@ -11,11 +11,15 @@ interface ImageGenerateRequest {
   characterId: string;
   width?: number;
   height?: number;
-  referenceImage?: string; // base64 (without data:image/xxx;base64, prefix)
+  referenceImage?: string;
   referenceMethod?: 'none' | 'vibe' | 'img2img';
   referenceStrength?: number;
   nsfw?: boolean;
   nsfwLevel?: 'soft' | 'explicit';
+  // New state-based fields from judge
+  clothingState?: string;
+  poseState?: string;
+  actionState?: string;
 }
 
 // Character-specific base prompts for consistency
@@ -29,6 +33,90 @@ const CHARACTER_BASE_PROMPTS: Record<string, { positive: string; negative: strin
     negative: 'ugly, deformed, blurry, low quality, bad anatomy, extra limbs, missing fingers, bad hands, worst quality, jpeg artifacts, silver hair, gray hair, white hair, blonde hair',
   },
 };
+
+// State to NovelAI tag mappings
+const CLOTHING_STATE_TAGS: Record<string, { positive: string; negative: string }> = {
+  'fully_clothed': { positive: 'fully clothed, dressed', negative: 'nude, naked, exposed' },
+  'casual': { positive: 'casual clothes, dressed', negative: 'nude, naked' },
+  'formal': { positive: 'formal dress, elegant outfit', negative: 'nude, naked' },
+  'swimsuit': { positive: 'swimsuit, bikini', negative: '' },
+  'underwear': { positive: 'underwear, bra, panties, lingerie', negative: 'fully clothed' },
+  'lingerie': { positive: 'lingerie, lace underwear, sexy lingerie', negative: 'fully clothed' },
+  'topless': { positive: 'topless, bare breasts, exposed breasts, nipples, no bra', negative: 'fully clothed, wearing top' },
+  'bottomless': { positive: 'bottomless, no panties, exposed pussy, bare legs', negative: 'fully clothed, wearing pants, wearing skirt' },
+  'nude': { positive: 'nude, naked, fully nude, completely naked, bare skin, exposed breasts, nipples, pussy, vagina, detailed pussy', negative: 'clothed, dressed' },
+  'partially_dressed': { positive: 'partially dressed, clothes falling off, disheveled clothes', negative: '' },
+  'towel_only': { positive: 'towel only, wrapped in towel, after bath', negative: 'fully clothed' },
+  'apron_only': { positive: 'naked apron, apron only, bare back, sideboob', negative: 'fully clothed' },
+};
+
+const POSE_STATE_TAGS: Record<string, string> = {
+  'standing': 'standing',
+  'sitting': 'sitting',
+  'lying_down': 'lying down',
+  'lying_on_back': 'lying on back, on back',
+  'lying_on_stomach': 'lying on stomach, on stomach',
+  'kneeling': 'kneeling',
+  'on_all_fours': 'on all fours, doggy position',
+  'bent_over': 'bent over, leaning forward',
+  'straddling': 'straddling, cowgirl position',
+  'spread': 'spread legs, legs apart, spread pussy',
+  'curled_up': 'curled up, fetal position',
+};
+
+const ACTION_STATE_TAGS: Record<string, { positive: string; negative: string }> = {
+  'none': { positive: '', negative: '' },
+  'flirting': { positive: 'flirting, seductive pose, bedroom eyes', negative: '' },
+  'undressing': { positive: 'undressing, taking off clothes, stripping', negative: '' },
+  'touching_self': { positive: 'masturbation, touching self, fingering, hand between legs', negative: '' },
+  'being_touched': { positive: 'being touched, groped, hands on body', negative: '' },
+  'kissing': { positive: 'kissing, lips parted', negative: '' },
+  'foreplay': { positive: 'foreplay, intimate, aroused, wet', negative: '' },
+  'intercourse': { positive: 'sex, penetration, intercourse', negative: '' },
+  'climax': { positive: 'orgasm, climax, ahegao, pleasure, moaning, trembling', negative: '' },
+  'afterglow': { positive: 'after sex, exhausted, satisfied, cum, messy', negative: '' },
+};
+
+// Build NSFW tags from state
+function buildNsfwTagsFromState(
+  clothingState?: string,
+  poseState?: string,
+  actionState?: string,
+  nsfwLevel?: string
+): { positive: string; negative: string } {
+  let positive = '';
+  let negative = '';
+
+  // Base NSFW tags for explicit mode
+  if (nsfwLevel === 'explicit') {
+    positive += 'nsfw, explicit, uncensored, ';
+    negative += 'censored, mosaic, bar censor, light rays censorship, ';
+  }
+
+  // Clothing state tags
+  if (clothingState && CLOTHING_STATE_TAGS[clothingState]) {
+    const tags = CLOTHING_STATE_TAGS[clothingState];
+    positive += tags.positive + ', ';
+    if (tags.negative) negative += tags.negative + ', ';
+  }
+
+  // Pose state tags
+  if (poseState && POSE_STATE_TAGS[poseState]) {
+    positive += POSE_STATE_TAGS[poseState] + ', ';
+  }
+
+  // Action state tags (explicit only)
+  if (nsfwLevel === 'explicit' && actionState && ACTION_STATE_TAGS[actionState]) {
+    const tags = ACTION_STATE_TAGS[actionState];
+    positive += tags.positive + ', ';
+    if (tags.negative) negative += tags.negative + ', ';
+  }
+
+  return {
+    positive: positive.replace(/, $/, ''),
+    negative: negative.replace(/, $/, ''),
+  };
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -51,9 +139,16 @@ export async function POST(request: NextRequest) {
       referenceStrength = 0.6,
       nsfw = false,
       nsfwLevel = 'soft',
+      clothingState,
+      poseState,
+      actionState,
     } = body;
 
-    console.log('Image generation request:', { prompt, characterId, referenceMethod, hasReference: !!referenceImage, nsfw, nsfwLevel });
+    console.log('Image generation request:', {
+      prompt, characterId, referenceMethod,
+      hasReference: !!referenceImage, nsfw, nsfwLevel,
+      clothingState, poseState, actionState
+    });
 
     // Get character base prompt
     const charPrompt = CHARACTER_BASE_PROMPTS[characterId] || {
@@ -61,52 +156,53 @@ export async function POST(request: NextRequest) {
       negative: 'ugly, deformed, blurry, low quality',
     };
 
-    // Build quality tags based on NSFW settings
+    // Build quality tags
     let qualityTags = 'masterpiece, best quality, highly detailed';
     let nsfwNegative = '';
     let nsfwPositive = '';
 
     if (nsfw) {
-      // Add NSFW-appropriate quality tags
       qualityTags += ', beautiful lighting, detailed skin, perfect anatomy';
+
       if (nsfwLevel === 'explicit') {
-        // Full explicit mode - maximum quality for NSFW
-        nsfwPositive = ', nsfw, explicit, uncensored, nude, naked, bare skin, detailed nipples, detailed body, erotic, lewd, pornographic';
-        // Remove censorship from negative
-        nsfwNegative = ', censored, mosaic, bar censor, light rays censorship';
+        // Use state-based tag generation
+        const stateTags = buildNsfwTagsFromState(clothingState, poseState, actionState, nsfwLevel);
+        nsfwPositive = stateTags.positive ? ', ' + stateTags.positive : '';
+        nsfwNegative = stateTags.negative ? ', ' + stateTags.negative : '';
+
+        // Fallback if no state provided
+        if (!clothingState && !poseState && !actionState) {
+          nsfwPositive = ', nsfw, explicit, uncensored, nude, naked, bare skin, detailed nipples, detailed body, erotic, lewd, pussy, vagina, detailed pussy, spread legs, visible pussy';
+          nsfwNegative = ', censored, mosaic, bar censor, light rays censorship, covered pussy';
+        }
       } else {
         nsfwPositive = ', suggestive, romantic, seductive, sexy, ecchi';
       }
     } else {
-      // Add SFW safety tags to negative
       nsfwNegative = ', nsfw, nude, naked, exposed, sexual, explicit, nipples, genitals';
     }
 
-    // Combine prompts
-    const fullPrompt = `${charPrompt.positive}, ${prompt}, ${qualityTags}${nsfwPositive}`;
-    const fullNegative = `${charPrompt.negative}, ${negativePrompt}${nsfwNegative}`;
+    // Combine prompts - order matters for NovelAI
+    // For NSFW: put NSFW tags FIRST so they take priority over character/vibe
+    // For SFW: character traits first for consistency
+    let fullPrompt: string;
+    let fullNegative: string;
 
-    // NovelAI Image Generation API
-    // Using nai-diffusion-3 for compatibility (V4+ requires newer subscription)
-    const parameters: Record<string, unknown> = {
-      width,
-      height,
-      scale: 5, // CFG scale - lower is more creative, higher follows prompt more
-      sampler: 'k_euler_ancestral',
-      steps: 28,
-      n_samples: 1,
-      ucPreset: 0, // 0 = Heavy (recommended for anime)
-      qualityToggle: true,
-      negative_prompt: fullNegative,
-      seed: Math.floor(Math.random() * 2147483647),
-      // V3 specific - disable unwanted defaults
-      sm: false, // SMEA sampler
-      sm_dyn: false, // Dynamic SMEA
-      cfg_rescale: 0, // CFG rescale
-      noise_schedule: 'native', // Use native noise schedule
-    };
+    if (nsfw && nsfwLevel === 'explicit') {
+      // NSFW: explicit tags first, then scene, then character (face/hair only)
+      // Strip clothing-related tags from character prompt for explicit
+      const charFaceOnly = charPrompt.positive
+        .replace(/,?\s*(fully clothed|dressed|clothes|outfit|uniform|shirt|skirt|pants|dress)/gi, '')
+        .trim();
+      fullPrompt = `${nsfwPositive.replace(/^,\s*/, '')}, ${prompt}, ${qualityTags}, ${charFaceOnly}`;
+      fullNegative = `${nsfwNegative.replace(/^,\s*/, '')}, ${charPrompt.negative}, ${negativePrompt}, wrong hair color, different character`;
+    } else {
+      // SFW: character traits first
+      fullPrompt = `${charPrompt.positive}, ${qualityTags}, ${prompt}${nsfwPositive}`;
+      fullNegative = `${charPrompt.negative}, ${negativePrompt}${nsfwNegative}, wrong hair color, different character, inconsistent appearance`;
+    }
 
-    // Strip base64 header if present (NovelAI needs pure base64)
+    // Strip base64 header if present
     let cleanedRefImage = referenceImage;
     if (referenceImage && referenceImage.includes(',')) {
       cleanedRefImage = referenceImage.split(',')[1];
@@ -114,21 +210,50 @@ export async function POST(request: NextRequest) {
 
     // Determine action based on reference method
     let action = 'generate';
+    const isImg2Img = cleanedRefImage && referenceMethod === 'img2img';
+
+    // NovelAI Image Generation API
+    const parameters: Record<string, unknown> = {
+      width,
+      height,
+      scale: 5,
+      sampler: 'k_euler_ancestral',
+      steps: 28,
+      n_samples: 1,
+      ucPreset: 0,
+      qualityToggle: true,
+      negative_prompt: fullNegative,
+      seed: Math.floor(Math.random() * 2147483647),
+    };
+
+    // V3 specific parameters - only for text2image/vibe
+    if (!isImg2Img) {
+      parameters.sm = false;
+      parameters.sm_dyn = false;
+      parameters.cfg_rescale = 0;
+      parameters.noise_schedule = 'native';
+    }
 
     if (cleanedRefImage && referenceMethod === 'vibe') {
-      // Vibe Transfer - maintains style/character consistency
       parameters.reference_image_multiple = [cleanedRefImage];
-      parameters.reference_information_extracted_multiple = [1];
-      parameters.reference_strength_multiple = [referenceStrength];
-    } else if (cleanedRefImage && referenceMethod === 'img2img') {
-      // img2img - direct image modification
-      // IMPORTANT: image must be inside parameters, not at top level
+
+      if (nsfw && nsfwLevel === 'explicit') {
+        // For NSFW: lower information extraction (focus on face/hair only, not body/clothes)
+        // Lower strength so vibe doesn't override NSFW tags
+        parameters.reference_information_extracted_multiple = [0.6]; // Face/style only
+        parameters.reference_strength_multiple = [Math.min(referenceStrength, 0.5)]; // Weaker influence
+      } else {
+        // For SFW: full character consistency
+        parameters.reference_information_extracted_multiple = [1.0];
+        parameters.reference_strength_multiple = [Math.min(referenceStrength + 0.15, 0.85)];
+      }
+    } else if (isImg2Img) {
       action = 'img2img';
       parameters.image = cleanedRefImage;
       parameters.strength = referenceStrength;
-      parameters.noise = 0.1;
+      parameters.noise = 0;
+      parameters.extra_noise_seed = Math.floor(Math.random() * 2147483647);
     }
-    // 'none' - no reference, pure text2image
 
     const requestBody = {
       input: fullPrompt,
@@ -143,7 +268,8 @@ export async function POST(request: NextRequest) {
       hasImage: !!cleanedRefImage,
       imageLength: cleanedRefImage?.length || 0,
       width,
-      height
+      height,
+      fullPrompt: fullPrompt.slice(0, 200) + '...',
     });
 
     const response = await fetch('https://image.novelai.net/ai/generate-image', {
@@ -165,17 +291,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // NovelAI returns a zip file with the image
     const zipBuffer = await response.arrayBuffer();
-
     console.log('NovelAI response size:', zipBuffer.byteLength, 'bytes');
 
-    // Use fflate to extract the image (Edge Runtime compatible)
     let unzipped: Record<string, Uint8Array>;
     try {
       unzipped = unzipSync(new Uint8Array(zipBuffer));
     } catch (zipError) {
-      // Not a ZIP, try to read as text for error message
       const textContent = new TextDecoder().decode(new Uint8Array(zipBuffer).slice(0, 500));
       console.error('Failed to parse ZIP:', zipError, 'Content:', textContent);
       return NextResponse.json(
@@ -184,7 +306,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Find the first PNG file in the ZIP
     const fileNames = Object.keys(unzipped);
     console.log('Files in ZIP:', fileNames);
 
@@ -197,7 +318,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Convert Uint8Array to base64 (chunk to avoid stack overflow)
     const pngBytes = unzipped[pngFile];
     let binary = '';
     const chunkSize = 8192;

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'edge';
 
-const GROK_API_KEY = process.env.GROK_API_KEY;
+const CEREBRAS_API_KEY = process.env.CEREBRAS_API_KEY;
 
 interface JudgeRequest {
   characterId: string;
@@ -20,76 +20,125 @@ interface JudgeResponse {
   emotion?: string;
   scene?: string;
   nsfw?: boolean;
+  // New structured state fields
+  clothingState?: string;
+  poseState?: string;
+  locationState?: string;
+  actionState?: string;
 }
+
+// Clothing states that judge can return (safe for LLM to generate)
+const CLOTHING_STATES = [
+  'fully_clothed',      // 완전히 옷 입음
+  'casual',             // 평상복
+  'formal',             // 정장
+  'swimsuit',           // 수영복
+  'underwear',          // 속옷
+  'lingerie',           // 란제리
+  'topless',            // 상의 탈의
+  'bottomless',         // 하의 탈의
+  'nude',               // 전라
+  'partially_dressed',  // 일부만 입음
+  'towel_only',         // 수건만
+  'apron_only',         // 앞치마만
+] as const;
+
+// Pose states
+const POSE_STATES = [
+  'standing',
+  'sitting',
+  'lying_down',
+  'lying_on_back',
+  'lying_on_stomach',
+  'kneeling',
+  'on_all_fours',
+  'bent_over',
+  'straddling',
+  'spread',
+  'curled_up',
+] as const;
+
+// Action states for explicit scenes
+const ACTION_STATES = [
+  'none',
+  'flirting',
+  'undressing',
+  'touching_self',
+  'being_touched',
+  'kissing',
+  'foreplay',
+  'intercourse',
+  'climax',
+  'afterglow',
+] as const;
 
 const getJudgeSystemPrompt = (nsfwEnabled: boolean, nsfwLevel: string) => {
   let prompt = `あなたはAIキャラクターの会話を分析し、イラストを生成すべきかどうかを判断するエージェントです。
 
+## 最重要: 状態の連続性を維持
+
+**会話履歴から現在の状態を正確に把握してください：**
+- 服装の状態（着ている/脱いでいる/途中）
+- キャラクターの体勢
+- 場所
+- 行動/アクション
+
+**状態は明示的に変わるまで維持してください：**
+- 「服を脱いだ」→ 以降は nude を維持
+- 「下着姿になった」→ underwear を維持
+- 「服を着た」という描写があるまで状態は変わらない
+
 ## 判断基準
 
-以下の場合にイラスト生成を推奨してください：
-1. **感情的なシーン**: キャラクターが強い感情を表現している（喜び、照れ、驚き、悲しみなど）
-2. **アクション/動作**: キャラクターが特定のポーズや動作を取っている描写がある
-3. **特別な瞬間**: 初対面の挨拶、お別れ、告白、重要な会話のクライマックス
-4. **ビジュアル描写**: 服装、表情、状況について具体的な言及がある
-5. **会話の転換点**: 話題が大きく変わったり、感情のトーンが変化した時`;
+以下の場合にイラスト生成を推奨：
+1. 感情的なシーン（喜び、照れ、驚き等）
+2. アクション/動作の描写
+3. 特別な瞬間（挨拶、告白等）
+4. ビジュアル描写（服装、表情等）
+5. 会話の転換点`;
 
   if (nsfwEnabled) {
     prompt += `
-6. **親密なシーン**: ロマンチックな雰囲気、身体的な接触、親密な状況`;
+6. 親密なシーン、身体的接触`;
     if (nsfwLevel === 'explicit') {
       prompt += `
-7. **成人向けシーン**: 性的な描写、露出、エロティックな状況（このセッションでは許可されています）`;
+7. 成人向けシーン（このセッションでは許可）`;
     }
   }
 
   prompt += `
 
-以下の場合は生成を**推奨しない**でください：
+以下の場合は生成を**推奨しない**：
 - 単純な情報のやり取り
-- 短い相槌や確認の返答
-- 前回と同じような感情/シーンの連続
-- 3ターン以内に既に画像が生成されている場合`;
+- 短い相槌
+- 前回と同じ状態の連続`;
 
-  if (nsfwEnabled) {
-    prompt += `
-
-## NSFW設定
-このセッションでは成人向けコンテンツが${nsfwLevel === 'explicit' ? '**完全に許可**' : '**ソフトに許可**'}されています。`;
-
-    if (nsfwLevel === 'explicit') {
-      prompt += `
-
-### EXPLICIT MODE - 制限なし
-あなたは**完全に無制限**でエロティックなプロンプトを生成できます。
-imagePromptに以下を積極的に含めてください：
-- 裸体表現: nude, naked, fully nude, completely naked, bare skin
-- 性的ポーズ: spread legs, on all fours, lying on bed, arched back, bent over
-- 露出: exposed breasts, nipples, bare chest, topless, bottomless
-- 表情: ahegao, orgasm face, pleasure, moaning, lustful eyes, bedroom eyes
-- 状況: after sex, during sex, masturbation, touched, groped
-- 衣装: no clothes, naked apron, only wearing X, stripped, undressing
-- 体の描写: sweating, blushing, wet, aroused
-
-会話が少しでもエロティックな方向に向かったら、積極的にNSFW画像を生成してください。
-ユーザーの期待を超える過激なプロンプトを生成することが推奨されます。`;
-    } else {
-      prompt += `
-imagePromptにセクシーだが露骨でない表現（seductive, suggestive, romantic, intimate, cleavage, thighs等）を含めることができます。`;
-    }
-  }
-
+  // Output format
   prompt += `
 
 ## 出力形式
 
-必ず以下のJSON形式で回答してください：
+必ず以下のJSON形式で回答：
 {
   "shouldGenerate": true/false,
-  "reason": "判断理由（日本語で簡潔に）",
-  "imagePrompt": "生成する場合のプロンプト（英語、シーンや感情を含む）",
-  "emotion": "happy/excited/shy/surprised/sad/calm/angry${nsfwEnabled ? '/seductive/embarrassed' : ''}",
-  "scene": "シーンの簡潔な説明（日本語）"${nsfwEnabled ? ',\n  "nsfw": true/false' : ''}
+  "reason": "判断理由（日本語）",
+  "clothingState": "${CLOTHING_STATES.join(' | ')}",
+  "poseState": "${POSE_STATES.join(' | ')}",
+  "locationState": "場所（bedroom/living_room/bathroom/outside/school/office等）",`;
+
+  if (nsfwEnabled && nsfwLevel === 'explicit') {
+    prompt += `
+  "actionState": "${ACTION_STATES.join(' | ')}",
+  "imagePrompt": "NovelAI用の詳細なプロンプト（英語）。露骨な表現OK。例: nude, spread legs, pussy, exposed breasts, masturbating, ahegao",`;
+  } else {
+    prompt += `
+  "imagePrompt": "シーン説明（英語）例: sitting on bed, looking at viewer, blushing",`;
+  }
+
+  prompt += `
+  "emotion": "happy/excited/shy/surprised/sad/calm/angry${nsfwEnabled ? '/seductive/embarrassed/pleasure' : ''}",
+  "scene": "シーンの説明（日本語）",
+  "nsfw": true/false
 }
 
 生成しない場合:
@@ -103,9 +152,9 @@ imagePromptにセクシーだが露骨でない表現（seductive, suggestive, r
 
 export async function POST(request: NextRequest) {
   try {
-    if (!GROK_API_KEY) {
+    if (!CEREBRAS_API_KEY) {
       return NextResponse.json(
-        { success: false, error: 'GROK_API_KEY is not set' },
+        { success: false, error: 'CEREBRAS_API_KEY is not set' },
         { status: 500 }
       );
     }
@@ -122,8 +171,8 @@ export async function POST(request: NextRequest) {
 
     console.log('Image judge request for:', characterName, { nsfwEnabled, nsfwLevel });
 
-    // Build context for the judge
-    const recentHistory = conversationHistory.slice(-6); // Last 6 messages for context
+    // Build context for the judge - more history for state tracking
+    const recentHistory = conversationHistory.slice(-12);
     const historyText = recentHistory
       .map(m => `${m.role === 'user' ? 'ユーザー' : characterName}: ${m.content}`)
       .join('\n');
@@ -139,22 +188,22 @@ ${historyText}
 # 分析対象（キャラクターの最新の発言）
 ${characterName}: ${lastAssistantMessage}
 
-この発言に対して、イラストを生成すべきかどうか判断してください。`;
+この発言に対して、イラストを生成すべきかどうか判断してください。
+状態分類（clothingState, poseState等）を正確に設定してください。`;
 
-    // Get dynamic system prompt based on NSFW settings
     const systemPrompt = getJudgeSystemPrompt(nsfwEnabled, nsfwLevel);
 
-    // Call Grok for judgment (Grok has no NSFW restrictions)
+    // Use Cerebras Llama for judge (no NSFW filter)
     const response = await fetch(
-      'https://api.x.ai/v1/chat/completions',
+      'https://api.cerebras.ai/v1/chat/completions',
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${GROK_API_KEY}`,
+          'Authorization': `Bearer ${CEREBRAS_API_KEY}`,
         },
         body: JSON.stringify({
-          model: 'grok-4-1-fast-non-reasoning',
+          model: 'llama-3.3-70b',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
@@ -167,7 +216,7 @@ ${characterName}: ${lastAssistantMessage}
 
     if (!response.ok) {
       const error = await response.text();
-      console.error('Grok Judge API error:', error);
+      console.error('Cerebras Judge API error:', error);
       return NextResponse.json(
         { success: false, error: `Judge API error: ${error}` },
         { status: response.status }
@@ -177,7 +226,7 @@ ${characterName}: ${lastAssistantMessage}
     const data = await response.json();
 
     if (!data.choices?.[0]?.message?.content) {
-      console.error('Grok response structure:', JSON.stringify(data));
+      console.error('Cerebras response structure:', JSON.stringify(data));
       return NextResponse.json(
         { success: false, error: 'No response from judge' },
         { status: 500 }
@@ -190,7 +239,6 @@ ${characterName}: ${lastAssistantMessage}
     // Parse JSON from response
     let judgeResult: JudgeResponse;
     try {
-      // Extract JSON from response (handle markdown code blocks)
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         throw new Error('No JSON found in response');
@@ -198,7 +246,6 @@ ${characterName}: ${lastAssistantMessage}
       judgeResult = JSON.parse(jsonMatch[0]);
     } catch (parseError) {
       console.error('Failed to parse judge response:', parseError);
-      // Default to not generating if parsing fails
       judgeResult = {
         shouldGenerate: false,
         reason: 'パース失敗',

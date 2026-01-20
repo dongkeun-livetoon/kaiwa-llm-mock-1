@@ -220,7 +220,21 @@ async function callGrok(model: string, messages: ChatMessage[], temperature: num
     throw new Error('Invalid response from Grok API: ' + JSON.stringify(data).slice(0, 100));
   }
 
-  return data.choices[0].message.content;
+  let content = data.choices[0].message.content || '';
+
+  // Clean up Grok's internal XML tags that sometimes leak into responses
+  content = content.replace(/<xai:[\s\S]*?<\/xai:[^>]+>/g, '');
+  content = content.replace(/<tool_usage_card>[\s\S]*?<\/tool_usage_card>/g, '');
+  content = content.replace(/<tool_usage>[\s\S]*?<\/tool_usage>/g, '');
+  content = content.trim();
+
+  // If response is empty after cleanup, Grok likely refused or had an error
+  if (!content) {
+    console.warn('Grok returned empty content, raw response:', JSON.stringify(data).slice(0, 500));
+    throw new Error('Grok returned empty response - may have been filtered');
+  }
+
+  return content;
 }
 
 export async function POST(request: NextRequest) {
