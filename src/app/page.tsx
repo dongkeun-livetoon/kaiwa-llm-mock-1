@@ -16,6 +16,7 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   emotion?: string;
+  image?: string; // base64 image data
   timestamp: Date;
 }
 
@@ -58,6 +59,8 @@ export default function ChatPage() {
   const [streamEnabled, setStreamEnabled] = useState(true);
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [imageGenEnabled, setImageGenEnabled] = useState(false);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(1024);
 
@@ -155,6 +158,69 @@ export default function ChatPage() {
     } catch (error) {
       console.error('TTS playback error:', error);
       setIsPlayingAudio(false);
+    }
+  };
+
+  // Image generation with AI judge
+  const judgeAndGenerateImage = async (
+    assistantMessage: string,
+    conversationHistory: { role: string; content: string }[]
+  ): Promise<string | null> => {
+    if (!imageGenEnabled) return null;
+
+    try {
+      setIsGeneratingImage(true);
+
+      // Step 1: Call judge API to decide if image should be generated
+      const judgeResponse = await fetch('/api/image/judge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          characterId: selectedCharacterId,
+          characterName: selectedCharacter?.displayName || '',
+          conversationHistory,
+          lastAssistantMessage: assistantMessage,
+          nsfwEnabled,
+          nsfwLevel,
+        }),
+      });
+
+      const judgeData = await judgeResponse.json();
+      console.log('Image judge result:', judgeData);
+
+      if (!judgeData.success || !judgeData.shouldGenerate) {
+        console.log('Judge decided not to generate image:', judgeData.reason);
+        return null;
+      }
+
+      // Step 2: Generate image if judge approves
+      console.log('Generating image with prompt:', judgeData.imagePrompt, { nsfw: judgeData.nsfw });
+
+      const generateResponse = await fetch('/api/image/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: judgeData.imagePrompt || `${judgeData.emotion || 'neutral'} expression, ${judgeData.scene || 'casual scene'}`,
+          characterId: selectedCharacterId,
+          nsfw: nsfwEnabled && judgeData.nsfw,
+          nsfwLevel,
+        }),
+      });
+
+      const generateData = await generateResponse.json();
+
+      if (!generateData.success) {
+        console.error('Image generation failed:', generateData.error);
+        return null;
+      }
+
+      console.log('Image generated successfully');
+      return generateData.image;
+    } catch (error) {
+      console.error('Image generation error:', error);
+      return null;
+    } finally {
+      setIsGeneratingImage(false);
     }
   };
 
@@ -284,6 +350,25 @@ export default function ChatPage() {
       if (ttsEnabled) {
         playTTS(data.content);
       }
+
+      // Generate image if enabled (async, updates message when done)
+      if (imageGenEnabled) {
+        const conversationForJudge = [...messages, userMessage, assistantMessage].map(m => ({
+          role: m.role,
+          content: m.content,
+        }));
+
+        judgeAndGenerateImage(data.content, conversationForJudge).then((generatedImage) => {
+          if (generatedImage) {
+            // Update the assistant message with the generated image
+            setMessages(prev => prev.map(msg =>
+              msg.id === assistantMessage.id
+                ? { ...msg, image: generatedImage }
+                : msg
+            ));
+          }
+        });
+      }
     } catch (error) {
       console.error('Failed to send message:', error);
       // Fallback to mock response on error
@@ -401,19 +486,31 @@ export default function ChatPage() {
                         <Image src={getAvatarUrl(selectedCharacterId)} alt="" width={32} height={32} className="w-full h-full object-cover" />
                       </div>
                     )}
-                    <div
-                      className={`max-w-[70%] p-4 rounded-2xl shadow-sm ${
-                        message.role === 'user'
-                          ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white'
-                          : 'bg-white border border-slate-200'
-                      }`}
-                    >
-                      {message.role === 'assistant' && message.emotion && (
-                        <span className="text-lg mr-1">{getEmotionEmoji(message.emotion)}</span>
+                    <div className={`max-w-[70%] ${message.role === 'user' ? '' : 'space-y-2'}`}>
+                      <div
+                        className={`p-4 rounded-2xl shadow-sm ${
+                          message.role === 'user'
+                            ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white'
+                            : 'bg-white border border-slate-200'
+                        }`}
+                      >
+                        {message.role === 'assistant' && message.emotion && (
+                          <span className="text-lg mr-1">{getEmotionEmoji(message.emotion)}</span>
+                        )}
+                        <span className={message.role === 'user' ? 'text-white' : 'text-slate-700'}>
+                          {message.content}
+                        </span>
+                      </div>
+                      {/* Generated Image */}
+                      {message.image && (
+                        <div className="rounded-2xl overflow-hidden shadow-lg border border-slate-200">
+                          <img
+                            src={message.image}
+                            alt="Generated illustration"
+                            className="w-full h-auto max-h-96 object-contain bg-slate-100"
+                          />
+                        </div>
                       )}
-                      <span className={message.role === 'user' ? 'text-white' : 'text-slate-700'}>
-                        {message.content}
-                      </span>
                     </div>
                     {message.role === 'user' && (
                       <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center ml-3 shrink-0 shadow-md">
@@ -434,6 +531,22 @@ export default function ChatPage() {
                         <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
                         <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
                         <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {isGeneratingImage && (
+                  <div className="flex justify-start">
+                    <div className="w-8 h-8 rounded-full overflow-hidden mr-3 shrink-0 shadow-md">
+                      <Image src={getAvatarUrl(selectedCharacterId)} alt="" width={32} height={32} className="w-full h-full object-cover" />
+                    </div>
+                    <div className="bg-gradient-to-r from-pink-50 to-purple-50 border border-purple-200 p-4 rounded-2xl shadow-sm">
+                      <div className="flex items-center gap-2 text-purple-600">
+                        <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span className="text-sm font-medium">イラスト生成中...</span>
                       </div>
                     </div>
                   </div>
@@ -587,6 +700,28 @@ export default function ChatPage() {
                   )}
                 </div>
               </label>
+
+              {/* Image Generation */}
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={imageGenEnabled}
+                  onChange={(e) => setImageGenEnabled(e.target.checked)}
+                  className="w-5 h-5 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+                />
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-slate-700">イラスト自動生成</span>
+                  {isGeneratingImage && (
+                    <span className="flex items-center gap-1 text-xs text-purple-600">
+                      <span className="w-2 h-2 bg-purple-600 rounded-full animate-pulse"></span>
+                      生成中
+                    </span>
+                  )}
+                </div>
+              </label>
+              {imageGenEnabled && (
+                <p className="text-xs text-slate-400 pl-8">AIが適切なタイミングでイラストを生成します (NovelAI)</p>
+              )}
             </div>
           </div>
 
