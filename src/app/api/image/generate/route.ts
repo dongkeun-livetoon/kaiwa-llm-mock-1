@@ -25,12 +25,12 @@ interface ImageGenerateRequest {
 // Character-specific base prompts for consistency
 const CHARACTER_BASE_PROMPTS: Record<string, { positive: string; negative: string }> = {
   'hikari-001': {
-    positive: '1girl, solo, gyaru, blonde long hair, pink and blue highlights in hair, heart necklace, energetic, bright smile, japanese girl, 18 years old, beautiful face, perfect face, slim waist, medium breasts, beautiful body, thighs, tan skin',
-    negative: 'ugly, deformed, blurry, low quality, bad anatomy, extra limbs, missing fingers, bad hands, worst quality, jpeg artifacts, silver hair, gray hair, white hair',
+    positive: '1girl, solo, gyaru, blonde long hair, purple eyes, white shirt, plaid skirt, school uniform, red bracelet, black shoes, black socks, energetic, bright smile, japanese girl, 18 years old, beautiful face, perfect face, slim waist, medium breasts, beautiful body, thighs, fair skin',
+    negative: 'ugly, deformed, blurry, low quality, bad anatomy, extra limbs, missing fingers, bad hands, worst quality, jpeg artifacts, silver hair, gray hair, white hair, blue hair, dark hair, wrong eye color',
   },
   'rio-001': {
-    positive: '1girl, solo, gentle girl, dark blue hair, navy blue hair, blue hair in ponytail, blue eyes, elegant, warm smile, kind eyes, 23 years old, japanese woman, beautiful face, perfect face, slim body, large breasts, beautiful body, long legs, fair skin',
-    negative: 'ugly, deformed, blurry, low quality, bad anatomy, extra limbs, missing fingers, bad hands, worst quality, jpeg artifacts, silver hair, gray hair, white hair, blonde hair',
+    positive: '1girl, solo, gentle girl, dark blue hair, navy blue hair, side ponytail, yellow eyes, golden eyes, blue cardigan, white shirt, black skirt, yellow hair clips, white socks, black shoes, elegant, warm smile, kind eyes, 23 years old, japanese woman, beautiful face, perfect face, slim body, large breasts, beautiful body, long legs, fair skin',
+    negative: 'ugly, deformed, blurry, low quality, bad anatomy, extra limbs, missing fingers, bad hands, worst quality, jpeg artifacts, silver hair, gray hair, white hair, blonde hair, wrong eye color, blue eyes',
   },
 };
 

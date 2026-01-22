@@ -62,8 +62,10 @@ export default function ChatPage() {
   const [imageGenEnabled, setImageGenEnabled] = useState(true); // Default: ON
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [imageRefMethod, setImageRefMethod] = useState<'none' | 'vibe' | 'img2img'>('vibe'); // Reference method
+  const [lastGeneratedImage, setLastGeneratedImage] = useState<string | null>(null); // 画像の記憶挿入 - 이전 생성 이미지 기억
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(1024);
+  const [showMobileSettings, setShowMobileSettings] = useState(false); // 모바일 설정 패널 토글
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -258,13 +260,24 @@ export default function ChatPage() {
       }
 
       // Step 2: Prepare reference image based on selected method
+      // 画像の記憶挿入: 이전 생성 이미지가 있으면 그것을 참조로 사용 (옷/상태 일관성 유지)
       let referenceImage: string | null = null;
       const targetWidth = 832;
       const targetHeight = 1216;
 
-      if (imageRefMethod !== 'none' && selectedCharacter?.avatarUrl) {
-        console.log('Preparing reference image, method:', imageRefMethod);
-        referenceImage = await resizeImageForNovelAI(selectedCharacter.avatarUrl, targetWidth, targetHeight);
+      if (imageRefMethod !== 'none') {
+        if (lastGeneratedImage) {
+          // 이전 생성 이미지가 있으면 그것을 참조로 사용 (일관성 유지)
+          console.log('Using last generated image as reference for consistency');
+          // lastGeneratedImage는 이미 data:image/png;base64, 형식이므로 base64 부분만 추출
+          referenceImage = lastGeneratedImage.includes(',')
+            ? lastGeneratedImage.split(',')[1]
+            : lastGeneratedImage;
+        } else if (selectedCharacter?.avatarUrl) {
+          // 첫 이미지는 아바타를 참조로 사용
+          console.log('Using avatar as reference (first image)');
+          referenceImage = await resizeImageForNovelAI(selectedCharacter.avatarUrl, targetWidth, targetHeight);
+        }
       }
 
       // Step 3: Generate image with state-based tags
@@ -305,6 +318,8 @@ export default function ChatPage() {
       }
 
       console.log('Image generated successfully');
+      // 画像の記憶挿入: 생성된 이미지를 저장해서 다음 이미지 생성에 참조로 사용
+      setLastGeneratedImage(generateData.image);
       return generateData.image;
     } catch (error) {
       console.error('Image generation error:', error);
@@ -498,6 +513,7 @@ export default function ChatPage() {
     setIsConversationStarted(false);
     setCurrentSessionId(null);
     setMessages([]);
+    setLastGeneratedImage(null); // 画像の記憶挿入: 대화 종료 시 이미지 기억 리셋
   };
 
   const getEmotionEmoji = (emotion?: string) => {
@@ -513,9 +529,41 @@ export default function ChatPage() {
 
   return (
     <div className="h-full animate-fadeIn">
-      <div className="grid grid-cols-12 gap-6 h-[calc(100vh-120px)]">
+      {/* 모바일 설정 버튼 */}
+      <button
+        onClick={() => setShowMobileSettings(true)}
+        className="lg:hidden fixed bottom-4 right-4 z-40 w-14 h-14 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-full shadow-lg flex items-center justify-center"
+      >
+        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      </button>
+
+      {/* 모바일 설정 오버레이 */}
+      {showMobileSettings && (
+        <div className="lg:hidden fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowMobileSettings(false)} />
+          <div className="absolute right-0 top-0 bottom-0 w-80 max-w-[85vw] bg-slate-50 overflow-y-auto animate-slideIn">
+            <div className="sticky top-0 bg-slate-50 border-b border-slate-200 p-4 flex items-center justify-between">
+              <h2 className="font-semibold text-slate-800">設定</h2>
+              <button onClick={() => setShowMobileSettings(false)} className="p-2 hover:bg-slate-200 rounded-lg">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              {/* 모바일 설정 내용 - 아래 데스크탑 설정과 동일 */}
+              {renderSettingsContent()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 h-[calc(100vh-120px)] lg:h-[calc(100vh-120px)]">
         {/* Main Chat Area */}
-        <div className="col-span-8 flex flex-col bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
+        <div className="col-span-1 lg:col-span-8 flex flex-col bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden h-[calc(100vh-140px)] lg:h-auto">
           {!isConversationStarted ? (
             /* Start Screen */
             <div className="flex-1 flex items-center justify-center">
@@ -675,9 +723,19 @@ export default function ChatPage() {
           )}
         </div>
 
-        {/* Settings Panel */}
-        <div className="col-span-4 space-y-4 overflow-y-auto">
-          {/* Character Selection */}
+        {/* Settings Panel - 데스크탑에서만 표시 */}
+        <div className="hidden lg:block lg:col-span-4 space-y-4 overflow-y-auto">
+          {renderSettingsContent()}
+        </div>
+      </div>
+    </div>
+  );
+
+  // 설정 패널 내용 (모바일/데스크탑 공용)
+  function renderSettingsContent() {
+    return (
+      <>
+        {/* Character Selection */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
             <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wide mb-4">キャラクター選択</h3>
             <div className="space-y-2">
@@ -956,8 +1014,7 @@ export default function ChatPage() {
               </div>
             )}
           </div>
-        </div>
-      </div>
-    </div>
-  );
+      </>
+    );
+  }
 }
