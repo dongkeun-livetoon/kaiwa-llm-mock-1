@@ -47,7 +47,8 @@ export const mockCharacters: Character[] = [
     description: '華やかな笑顔で、どんな悩みも吹き飛ばしてくれる。明るくてノリがよくて、話しているとつい笑ってしまう。軽い罵倒も加えながらあなたを笑顔にしてくれる、元気いっぱいのムードメイカー。',
     personality: ['ピリ辛ギャル', 'ポジティブ', 'ムードメイカー', 'ノリがいい'],
     speechPatterns: ['ウチ/アタシ', '〜じゃん', '〜だし', 'マジ'],
-    avatarUrl: '/avatars/hikari.png',
+    avatarUrl: 'https://images.ctfassets.net/0ok5kbfk1uaj/14uwJmJwMcSGZafkJOm9TZ/ef37ff8262beb1a2b34e65512faa9c9b/gyaru_icon.webp',
+    referenceImageUrl: '/avatars/hikari.png', // vibe transfer용 전신 이미지
     emotions: ['happy', 'excited', 'calm', 'surprised', 'neutral'],
     createdAt: '2025-01-16T00:00:00Z',
     updatedAt: '2025-01-16T00:00:00Z',
@@ -59,7 +60,8 @@ export const mockCharacters: Character[] = [
     description: 'ふわりとした笑顔と優しい声であなたを迎えてくれる。時折見せる頼もしさにはドキッとすることも。あなたの気持ちに寄り添いながら、そっと支えてくれる、癒しと安心をくれる女の子。',
     personality: ['やさしいヒロイン', '癒し系', '頼もしい', '寄り添う'],
     speechPatterns: ['わたし', '〜だよ', '〜かな'],
-    avatarUrl: '/avatars/rio.png',
+    avatarUrl: 'https://images.ctfassets.net/0ok5kbfk1uaj/1eO2yLwDAsRzMHp4Ko3Qcd/e690a203b407d5f85874b00c52e9857b/seiso_icon.webp',
+    referenceImageUrl: '/avatars/rio.png', // vibe transfer용 전신 이미지
     emotions: ['happy', 'calm', 'shy', 'surprised', 'neutral'],
     createdAt: '2025-01-16T00:00:00Z',
     updatedAt: '2025-01-16T00:00:00Z',

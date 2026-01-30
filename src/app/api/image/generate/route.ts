@@ -182,23 +182,24 @@ export async function POST(request: NextRequest) {
       nsfwNegative = ', nsfw, nude, naked, exposed, sexual, explicit, nipples, genitals';
     }
 
-    // Combine prompts - order matters for NovelAI
-    // For NSFW: put NSFW tags FIRST so they take priority over character/vibe
-    // For SFW: character traits first for consistency
+    // Combine prompts - order matters for NovelAI (앞에 있는 태그가 더 강함)
+    // 자세 태그를 앞에 배치해서 vibe의 서있는 자세 override
     let fullPrompt: string;
     let fullNegative: string;
 
+    // 자세 태그 추출 (poseState가 있으면 앞에 배치)
+    const poseTag = poseState && POSE_STATE_TAGS[poseState] ? POSE_STATE_TAGS[poseState] : '';
+
     if (nsfw && nsfwLevel === 'explicit') {
-      // NSFW: explicit tags first, then scene, then character (face/hair only)
-      // Strip clothing-related tags from character prompt for explicit
+      // NSFW: 자세 먼저, 그다음 explicit tags, scene, character
       const charFaceOnly = charPrompt.positive
         .replace(/,?\s*(fully clothed|dressed|clothes|outfit|uniform|shirt|skirt|pants|dress)/gi, '')
         .trim();
-      fullPrompt = `${nsfwPositive.replace(/^,\s*/, '')}, ${prompt}, ${qualityTags}, ${charFaceOnly}`;
+      fullPrompt = `${poseTag ? poseTag + ', ' : ''}${nsfwPositive.replace(/^,\s*/, '')}, ${prompt}, ${qualityTags}, ${charFaceOnly}`;
       fullNegative = `${nsfwNegative.replace(/^,\s*/, '')}, ${charPrompt.negative}, ${negativePrompt}, wrong hair color, different character`;
     } else {
-      // SFW: character traits first
-      fullPrompt = `${charPrompt.positive}, ${qualityTags}, ${prompt}${nsfwPositive}`;
+      // SFW: 자세 먼저, 그다음 scene, character
+      fullPrompt = `${poseTag ? poseTag + ', ' : ''}${prompt}, ${qualityTags}, ${charPrompt.positive}${nsfwPositive}`;
       fullNegative = `${charPrompt.negative}, ${negativePrompt}${nsfwNegative}, wrong hair color, different character, inconsistent appearance`;
     }
 
@@ -216,7 +217,7 @@ export async function POST(request: NextRequest) {
     const parameters: Record<string, unknown> = {
       width,
       height,
-      scale: 5,
+      scale: 3, // 낮춤 - 텍스트 프롬프트 영향 줄이고 vibe 강화
       sampler: 'k_euler_ancestral',
       steps: 28,
       n_samples: 1,
@@ -237,15 +238,14 @@ export async function POST(request: NextRequest) {
     if (cleanedRefImage && referenceMethod === 'vibe') {
       parameters.reference_image_multiple = [cleanedRefImage];
 
+      // 화풍은 유지하되 자세는 프롬프트 따르게
+      // information 높으면 스타일 강함, strength 낮추면 프롬프트(자세) 더 반영
       if (nsfw && nsfwLevel === 'explicit') {
-        // For NSFW: lower information extraction (focus on face/hair only, not body/clothes)
-        // Lower strength so vibe doesn't override NSFW tags
-        parameters.reference_information_extracted_multiple = [0.6]; // Face/style only
-        parameters.reference_strength_multiple = [Math.min(referenceStrength, 0.5)]; // Weaker influence
+        parameters.reference_information_extracted_multiple = [0.8]; // 스타일 추출
+        parameters.reference_strength_multiple = [0.4]; // 낮춰서 프롬프트 자세 반영
       } else {
-        // For SFW: full character consistency
-        parameters.reference_information_extracted_multiple = [1.0];
-        parameters.reference_strength_multiple = [Math.min(referenceStrength + 0.15, 0.85)];
+        parameters.reference_information_extracted_multiple = [0.9]; // 스타일 추출
+        parameters.reference_strength_multiple = [0.5]; // 낮춰서 프롬프트 자세 반영
       }
     } else if (isImg2Img) {
       action = 'img2img';

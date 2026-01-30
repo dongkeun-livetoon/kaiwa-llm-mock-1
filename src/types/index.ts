@@ -7,6 +7,7 @@ export interface Character {
   personality: string[];
   speechPatterns: string[];
   avatarUrl: string;
+  referenceImageUrl?: string; // vibe transfer용 전신 이미지
   emotions: string[];
   createdAt: string;
   updatedAt: string;
