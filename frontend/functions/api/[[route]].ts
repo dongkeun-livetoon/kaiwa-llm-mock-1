@@ -129,20 +129,33 @@ const CHARACTER_BASE_PROMPTS: Record<string, { positive: string; negative: strin
   },
 };
 
-const CLOTHING_STATE_TAGS: Record<string, { positive: string; negative: string }> = {
-  'fully_clothed': { positive: 'fully clothed, dressed', negative: 'nude, naked, exposed' },
-  'casual': { positive: 'casual clothes, dressed', negative: 'nude, naked' },
-  'swimsuit': { positive: 'swimsuit, bikini', negative: '' },
-  'underwear': { positive: 'underwear, bra, panties', negative: 'fully clothed' },
-  'lingerie': { positive: 'lingerie, lace underwear', negative: 'fully clothed' },
-  'topless': { positive: 'topless, bare breasts, nipples', negative: 'wearing top' },
-  'nude': { positive: 'nude, naked, fully nude, exposed breasts, nipples, pussy', negative: 'clothed, dressed' },
-  'towel_only': { positive: 'towel only, after bath', negative: 'fully clothed' },
+const TOP_STATE_TAGS: Record<string, { positive: string; negative: string }> = {
+  'clothed': { positive: 'wearing top, shirt', negative: 'topless, bare breasts' },
+  'underwear': { positive: 'bra, wearing bra only', negative: 'shirt, topless' },
+  'exposed': { positive: 'topless, bare breasts, nipples, exposed breasts', negative: 'wearing top, bra, shirt' },
+};
+
+const BOTTOM_STATE_TAGS: Record<string, { positive: string; negative: string }> = {
+  'clothed': { positive: 'wearing skirt, pants', negative: 'bottomless, no panties' },
+  'underwear': { positive: 'panties, wearing panties only, no skirt', negative: 'skirt, pants, nude' },
+  'exposed': { positive: 'bottomless, no panties, pussy, exposed pussy', negative: 'wearing skirt, panties, pants' },
 };
 
 const POSE_STATE_TAGS: Record<string, string> = {
   'standing': 'standing', 'sitting': 'sitting', 'lying_down': 'lying down',
   'lying_on_back': 'lying on back', 'kneeling': 'kneeling', 'on_all_fours': 'on all fours', 'spread': 'spread legs',
+};
+
+// Pre-generated pose reference images for vibe transfer
+const HIKARI_POSE_REFS: Record<string, string> = {
+  'breasts_groped': 'breasts_groped.png',
+  'cowgirl_cum': 'cowgirl_cum.png',
+  'cum_inside': 'cum_inside.png',
+  'doggy': 'doggy.png',
+  'doggysex_cum': 'doggysex_cum.png',
+  'fella_cum': 'fella_cum.png',
+  'gangrape_cum': 'gangrape_cum.png',
+  // Add more as created
 };
 
 const ACTION_STATE_TAGS: Record<string, { positive: string; negative: string }> = {
@@ -152,15 +165,18 @@ const ACTION_STATE_TAGS: Record<string, { positive: string; negative: string }> 
   'climax': { positive: 'orgasm, ahegao, pleasure', negative: '' },
 };
 
-function buildNsfwTagsFromState(clothingState?: string, poseState?: string, actionState?: string, nsfwLevel?: string) {
+function buildNsfwTagsFromState(topState?: string, bottomState?: string, poseState?: string, nsfwLevel?: string) {
   let positive = '', negative = '';
   if (nsfwLevel === 'explicit') { positive += 'nsfw, explicit, uncensored, '; negative += 'censored, mosaic, '; }
-  if (clothingState && CLOTHING_STATE_TAGS[clothingState]) {
-    positive += CLOTHING_STATE_TAGS[clothingState].positive + ', ';
-    if (CLOTHING_STATE_TAGS[clothingState].negative) negative += CLOTHING_STATE_TAGS[clothingState].negative + ', ';
+  if (topState && TOP_STATE_TAGS[topState]) {
+    positive += TOP_STATE_TAGS[topState].positive + ', ';
+    negative += TOP_STATE_TAGS[topState].negative + ', ';
+  }
+  if (bottomState && BOTTOM_STATE_TAGS[bottomState]) {
+    positive += BOTTOM_STATE_TAGS[bottomState].positive + ', ';
+    negative += BOTTOM_STATE_TAGS[bottomState].negative + ', ';
   }
   if (poseState && POSE_STATE_TAGS[poseState]) positive += POSE_STATE_TAGS[poseState] + ', ';
-  if (nsfwLevel === 'explicit' && actionState && ACTION_STATE_TAGS[actionState]) positive += ACTION_STATE_TAGS[actionState].positive + ', ';
   return { positive: positive.replace(/, $/, ''), negative: negative.replace(/, $/, '') };
 }
 
@@ -181,7 +197,7 @@ app.post('/image/generate', async (c) => {
     const apiKey = c.env.NOVELAI_API_KEY;
     if (!apiKey) return c.json({ success: false, error: 'NOVELAI_API_KEY not set' }, 500);
 
-    const { prompt, negativePrompt = '', characterId, width = 832, height = 1216, referenceImage, referenceMethod = 'none', referenceStrength = 0.6, nsfw = false, nsfwLevel = 'soft', clothingState, poseState, actionState } = await c.req.json();
+    const { prompt, negativePrompt = '', characterId, width = 832, height = 1216, referenceImage, referenceMethod = 'none', referenceStrength = 0.6, nsfw = false, nsfwLevel = 'soft', topState, bottomState, poseState, poseRef } = await c.req.json();
 
     const charPrompt = CHARACTER_BASE_PROMPTS[characterId] || { positive: 'anime girl, high quality', negative: 'ugly, deformed, blurry, low quality' };
     let qualityTags = 'masterpiece, best quality, highly detailed';
@@ -190,7 +206,7 @@ app.post('/image/generate', async (c) => {
     if (nsfw) {
       qualityTags += ', beautiful lighting, detailed skin';
       if (nsfwLevel === 'explicit') {
-        const stateTags = buildNsfwTagsFromState(clothingState, poseState, actionState, nsfwLevel);
+        const stateTags = buildNsfwTagsFromState(topState, bottomState, poseState, nsfwLevel);
         nsfwPositive = stateTags.positive ? ', ' + stateTags.positive : '';
         nsfwNegative = stateTags.negative ? ', ' + stateTags.negative : '';
       } else {
@@ -288,15 +304,27 @@ app.post('/image/judge', async (c) => {
     const { characterName, conversationHistory, lastAssistantMessage, nsfwEnabled = false, nsfwLevel = 'soft', previousImageState } = await c.req.json();
 
     const historyText = conversationHistory.slice(-12).map((m: { role: string; content: string }) => `${m.role === 'user' ? 'ユーザー' : characterName}: ${m.content}`).join('\n');
-    const prevStateText = previousImageState ? `前回のイラスト状態: 服装=${previousImageState.clothingState || '不明'}, 体勢=${previousImageState.poseState || '不明'}` : '';
+    const prevStateText = previousImageState ? `Previous poseRef: ${previousImageState.poseRef || 'none'}` : '';
 
     let systemPrompt: string;
 
     if (nsfwEnabled && nsfwLevel === 'explicit') {
-      systemPrompt = `Output ONLY valid JSON. No explanation. No text before or after JSON.
-shouldGenerate:always true. ${prevStateText}
-clothingState:fully_clothed/underwear/lingerie/topless/nude
-poseState:standing/sitting/lying_down/lying_on_back/kneeling/on_all_fours/spread`;
+      systemPrompt = `Output ONLY valid JSON. No explanation.
+shouldGenerate: always true. ${prevStateText}
+
+FOLLOW USER'S REQUESTS exactly.
+
+Available poseRef (use EXACTLY one of these when appropriate):
+- breasts_groped: groping breasts from behind
+- cowgirl_cum: girl on top, riding, cum
+- cum_inside: lying on back, creampie, after sex
+- doggy: on all fours, from behind, ass up
+- doggysex_cum: doggystyle sex with cum
+- fella_cum: fellatio, oral, cum on face
+- gangrape_cum: multiple partners
+
+If no sexual pose needed, set poseRef to null.
+imagePrompt: describe the scene in English tags`;
     } else {
       systemPrompt = `Output ONLY valid JSON. No explanation. ${prevStateText}`;
     }
@@ -308,7 +336,7 @@ poseState:standing/sitting/lying_down/lying_on_back/kneeling/on_all_fours/spread
         model: 'llama-3.3-70b',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Conversation:\n${historyText}\n${characterName}: ${lastAssistantMessage}\n\nRespond with ONLY this JSON format, nothing else:\n{"shouldGenerate":true,"reason":"short","clothingState":"nude","poseState":"standing","imagePrompt":"descriptive english prompt for the image","emotion":"shy","nsfw":true}` }
+          { role: 'user', content: `Conversation:\n${historyText}\n${characterName}: ${lastAssistantMessage}\n\nRespond with ONLY this JSON:\n{"shouldGenerate":true,"poseRef":"doggy","imagePrompt":"on all fours, from behind, ass up, nude","emotion":"shy"}` }
         ],
         temperature: 0.2,
         max_tokens: 300,

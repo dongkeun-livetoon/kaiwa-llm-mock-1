@@ -7,7 +7,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "deploy": "vite build && wrangler pages deploy dist --project-name=kaiwa-llm-mock"
+    "deploy": "vite build && wrangler pages deploy dist --project-name=kaiwa-llm-mock",
+    "generate-sprites": "tsx scripts/generate-sprites.ts"
   },
   "dependencies": {
     "fflate": "^0.8.2",
@@ -25,6 +26,7 @@
     "autoprefixer": "^10.4.21",
     "postcss": "^8.5.3",
     "tailwindcss": "^4.1.4",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.0",
     "wrangler": "^4.61.1"

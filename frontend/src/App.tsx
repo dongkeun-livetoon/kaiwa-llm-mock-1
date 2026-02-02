@@ -28,10 +28,10 @@ export default function App() {
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [lastImageState, setLastImageState] = useState<{
-    clothingState?: string;
+    topState?: string;
+    bottomState?: string;
     poseState?: string;
-    locationState?: string;
-    actionState?: string;
+    poseRef?: string;
   } | null>(null);
 
   const [isConversationStarted, setIsConversationStarted] = useState(false);
@@ -97,20 +97,44 @@ export default function App() {
         return null;
       }
 
-      // Get reference image for vibe transfer
+      // Get reference image for vibe transfer (use poseRef if available)
       let referenceImage: string | undefined;
-      const refUrl = selectedCharacter?.referenceImageUrl;
-      if (refUrl) {
+      const poseRef = judgeData.poseRef;
+
+      if (poseRef) {
+        // Load pre-made pose reference image
         try {
-          const refResponse = await fetch(refUrl);
-          const refBlob = await refResponse.blob();
-          referenceImage = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.readAsDataURL(refBlob);
-          });
+          const poseRefUrl = `/ref/hikari/${poseRef}.png`;
+          const refResponse = await fetch(poseRefUrl);
+          if (refResponse.ok) {
+            const refBlob = await refResponse.blob();
+            referenceImage = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.readAsDataURL(refBlob);
+            });
+            console.log('Loaded pose reference:', poseRef);
+          }
         } catch (e) {
-          console.error('Failed to load reference image:', e);
+          console.error('Failed to load pose reference:', e);
+        }
+      }
+
+      // Fallback to character reference if no pose ref
+      if (!referenceImage) {
+        const refUrl = selectedCharacter?.referenceImageUrl;
+        if (refUrl) {
+          try {
+            const refResponse = await fetch(refUrl);
+            const refBlob = await refResponse.blob();
+            referenceImage = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.readAsDataURL(refBlob);
+            });
+          } catch (e) {
+            console.error('Failed to load reference image:', e);
+          }
         }
       }
 
@@ -120,11 +144,12 @@ export default function App() {
         body: JSON.stringify({
           prompt: judgeData.imagePrompt || `${judgeData.emotion || 'neutral'} expression`,
           characterId: selectedCharacterId,
-          nsfw: nsfwEnabled && judgeData.nsfw,
+          nsfw: nsfwEnabled,
           nsfwLevel,
-          clothingState: judgeData.clothingState,
+          topState: judgeData.topState,
+          bottomState: judgeData.bottomState,
           poseState: judgeData.poseState,
-          actionState: judgeData.actionState,
+          poseRef: judgeData.poseRef,
           referenceImage,
           referenceMethod: referenceImage ? 'vibe' : 'none',
         }),
@@ -137,10 +162,10 @@ export default function App() {
       }
 
       setLastImageState({
-        clothingState: judgeData.clothingState,
+        topState: judgeData.topState,
+        bottomState: judgeData.bottomState,
         poseState: judgeData.poseState,
-        locationState: judgeData.locationState,
-        actionState: judgeData.actionState,
+        poseRef: judgeData.poseRef,
       });
 
       return generateData.image;
