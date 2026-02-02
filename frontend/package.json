@@ -10,6 +10,7 @@
     "deploy": "vite build && wrangler pages deploy dist --project-name=kaiwa-llm-mock"
   },
   "dependencies": {
+    "fflate": "^0.8.2",
     "hono": "^4.11.7",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"

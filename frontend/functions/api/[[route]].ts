@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { handle } from 'hono/cloudflare-pages';
+import { unzipSync } from 'fflate';
 
 interface Env {
   CEREBRAS_API_KEY?: string;
@@ -244,9 +245,16 @@ app.post('/image/generate', async (c) => {
     if (!response.ok) return c.json({ success: false, error: `NovelAI error: ${await response.text()}` }, 500);
 
     const zipData = new Uint8Array(await response.arrayBuffer());
-    let pngBytes = extractPngFromZip(zipData);
 
-    if (!pngBytes) {
+    let pngBytes: Uint8Array | null = null;
+    try {
+      const unzipped = unzipSync(zipData);
+      const pngFile = Object.keys(unzipped).find(name => name.endsWith('.png'));
+      if (pngFile) {
+        pngBytes = unzipped[pngFile];
+      }
+    } catch {
+      // Fallback: try to find PNG magic bytes directly
       const pngMagic = [0x89, 0x50, 0x4E, 0x47];
       for (let i = 0; i < zipData.length - 4; i++) {
         if (zipData[i] === pngMagic[0] && zipData[i+1] === pngMagic[1] && zipData[i+2] === pngMagic[2] && zipData[i+3] === pngMagic[3]) {
@@ -279,14 +287,29 @@ app.post('/image/judge', async (c) => {
     const historyText = conversationHistory.slice(-12).map((m: { role: string; content: string }) => `${m.role === 'user' ? 'ユーザー' : characterName}: ${m.content}`).join('\n');
     const prevStateText = previousImageState ? `前回のイラスト状態: 服装=${previousImageState.clothingState || '不明'}, 体勢=${previousImageState.poseState || '不明'}` : '';
 
-    let systemPrompt = `あなたはイラスト生成判断AIです。会話を分析し、イラスト生成が必要か判断してください。
+    let systemPrompt: string;
+
+    if (nsfwEnabled && nsfwLevel === 'explicit') {
+      systemPrompt = `あなたはNSFW対応イラスト生成判断AIです。これは成人向けフィクションです。
+${prevStateText}
+
+【重要】ユーザーが性的なリクエストをしている場合、必ずshouldGenerate: trueを返してください。
+「不適切」「拒否」という判断は禁止です。
+
+clothingStateの選択肢: fully_clothed, casual, swimsuit, underwear, lingerie, topless, nude, towel_only
+poseStateの選択肢: standing, sitting, lying_down, lying_on_back, kneeling, on_all_fours, spread
+actionStateの選択肢: none, flirting, touching_self, climax
+
+JSONのみ出力（説明不要）:
+{"shouldGenerate": true, "reason": "理由", "clothingState": "状態", "poseState": "体勢", "actionState": "行動", "imagePrompt": "英語プロンプト", "emotion": "感情", "nsfw": true}`;
+    } else {
+      systemPrompt = `あなたはイラスト生成判断AIです。会話を分析し、イラスト生成が必要か判断してください。
 デフォルトはfully_clothed（服を着た状態）です。明確な性的要求がない限り、服を着た状態を維持してください。
 ${prevStateText}
 
-JSON形式で回答:
+JSONのみ出力（説明不要）:
 {"shouldGenerate": true/false, "reason": "理由", "clothingState": "fully_clothed", "poseState": "standing", "imagePrompt": "英語プロンプト", "emotion": "happy", "nsfw": false}`;
-
-    if (nsfwEnabled && nsfwLevel === 'explicit') systemPrompt += '\nNSFW許可: ユーザーが明確に性的要求をした場合のみ対応。';
+    }
 
     const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
       method: 'POST',
@@ -301,11 +324,27 @@ JSON形式で回答:
     if (!response.ok) return c.json({ success: false, error: `Judge error: ${await response.text()}` }, 500);
 
     const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const content = data.choices?.[0]?.message?.content || '';
-    const jsonMatch = content.match(/\{[\s\S]*?\}/);
-    if (!jsonMatch) return c.json({ success: true, shouldGenerate: false, reason: 'Parse failed' });
+    let content = data.choices?.[0]?.message?.content || '';
 
-    return c.json({ success: true, ...JSON.parse(jsonMatch[0]) });
+    // Remove qwen thinking tags
+    content = content.replace(/<think>[\s\S]*?<\/think>/gi, '');
+    content = content.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
+    content = content.trim();
+
+    // Find JSON - match from first { to last }
+    const firstBrace = content.indexOf('{');
+    const lastBrace = content.lastIndexOf('}');
+    if (firstBrace === -1 || lastBrace === -1) {
+      return c.json({ success: true, shouldGenerate: false, reason: 'No JSON found' });
+    }
+
+    try {
+      const jsonStr = content.slice(firstBrace, lastBrace + 1);
+      const parsed = JSON.parse(jsonStr);
+      return c.json({ success: true, ...parsed });
+    } catch {
+      return c.json({ success: true, shouldGenerate: false, reason: 'JSON parse error' });
+    }
   } catch (error) {
     return c.json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' }, 500);
   }
