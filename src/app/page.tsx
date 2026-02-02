@@ -522,61 +522,71 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="h-full animate-fadeIn">
-      {/* 모바일 설정 버튼 */}
-      <button
-        onClick={() => setShowMobileSettings(true)}
-        className="lg:hidden fixed bottom-4 right-4 z-40 w-14 h-14 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-full shadow-lg flex items-center justify-center"
-      >
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-      </button>
-
+    <div
+      className="lg:relative lg:w-full lg:h-full animate-fadeIn"
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: '100vw',
+        height: '100dvh',
+        backgroundColor: 'white',
+        zIndex: 10,
+      }}
+    >
       {/* 모바일 설정 오버레이 */}
       {showMobileSettings && (
         <div className="lg:hidden fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setShowMobileSettings(false)} />
-          <div className="absolute right-0 top-0 bottom-0 w-80 max-w-[85vw] bg-slate-50 overflow-y-auto animate-slideIn">
-            <div className="sticky top-0 bg-slate-50 border-b border-slate-200 p-4 flex items-center justify-between">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMobileSettings(false)} />
+          <div className="absolute right-0 top-0 bottom-0 w-80 max-w-[90vw] bg-white overflow-y-auto animate-slideIn shadow-2xl">
+            <div className="sticky top-0 bg-white/95 backdrop-blur border-b border-slate-200 px-4 py-3 flex items-center justify-between z-10">
               <h2 className="font-semibold text-slate-800">設定</h2>
-              <button onClick={() => setShowMobileSettings(false)} className="p-2 hover:bg-slate-200 rounded-lg">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <button onClick={() => setShowMobileSettings(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
-            <div className="p-4 space-y-4">
-              {/* 모바일 설정 내용 - 아래 데스크탑 설정과 동일 */}
+            <div className="p-4 space-y-4 pb-safe">
               {renderSettingsContent()}
             </div>
           </div>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 h-[calc(100vh-120px)] lg:h-[calc(100vh-120px)]">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 lg:gap-6 h-full">
         {/* Main Chat Area */}
-        <div className="col-span-1 lg:col-span-8 flex flex-col bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden h-[calc(100vh-140px)] lg:h-auto">
+        <div className="col-span-1 lg:col-span-8 flex flex-col bg-white lg:rounded-2xl lg:shadow-sm lg:border border-slate-200/60 overflow-hidden h-full">
           {!isConversationStarted ? (
             /* Start Screen */
-            <div className="flex-1 flex items-center justify-center">
+            <div className="flex-1 flex items-center justify-center px-6 pt-safe">
               <div className="text-center max-w-md">
-                <div className="w-24 h-24 rounded-3xl overflow-hidden mx-auto mb-6 shadow-xl">
+                <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl sm:rounded-3xl overflow-hidden mx-auto mb-4 sm:mb-6 shadow-xl">
                   <Image src={getAvatarUrl(selectedCharacterId)} alt={selectedCharacter?.displayName || ''} width={96} height={96} className="w-full h-full object-cover" />
                 </div>
-                <h1 className="text-2xl font-bold text-slate-800 mb-2">
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-800 mb-2">
                   {selectedCharacter?.displayName}と会話する
                 </h1>
-                <p className="text-slate-500 mb-6">
+                <p className="text-sm sm:text-base text-slate-500 mb-4 sm:mb-6 px-4">
                   {selectedCharacter?.description}
                 </p>
-                <button
-                  onClick={startConversation}
-                  className="px-8 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5"
-                >
-                  会話を始める
-                </button>
+                <div className="space-y-3">
+                  <button
+                    onClick={startConversation}
+                    className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5 active:scale-[0.98]"
+                  >
+                    会話を始める
+                  </button>
+                  {/* 모바일 설정 버튼 - 시작 전 */}
+                  <button
+                    onClick={() => setShowMobileSettings(true)}
+                    className="lg:hidden w-full px-6 py-3 border border-slate-200 text-slate-600 rounded-xl font-medium hover:bg-slate-50 transition-colors"
+                  >
+                    設定を変更
+                  </button>
+                </div>
                 <p className="text-xs text-slate-400 mt-4">
                   プロンプト: {activePrompt?.version} · モデル: {LLM_MODELS.find(m => m.id === selectedModel)?.name}
                 </p>
@@ -586,48 +596,60 @@ export default function ChatPage() {
             /* Chat Interface */
             <>
               {/* Chat Header */}
-              <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl overflow-hidden shadow-lg">
+              <div className="px-3 sm:px-6 py-3 sm:py-4 border-b border-slate-100 bg-white/95 backdrop-blur-sm flex items-center justify-between sticky top-0 z-20 pt-safe">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl overflow-hidden shadow-lg shrink-0">
                     <Image src={getAvatarUrl(selectedCharacterId)} alt={selectedCharacter?.displayName || ''} width={48} height={48} className="w-full h-full object-cover" />
                   </div>
-                  <div>
-                    <h2 className="font-semibold text-slate-800">{selectedCharacter?.displayName}</h2>
-                    <p className="text-xs text-slate-500">
-                      {activePrompt?.version} · {LLM_MODELS.find(m => m.id === selectedModel)?.name}
+                  <div className="min-w-0">
+                    <h2 className="font-semibold text-slate-800 text-sm sm:text-base truncate">{selectedCharacter?.displayName}</h2>
+                    <p className="text-[10px] sm:text-xs text-slate-500 truncate">
+                      {LLM_MODELS.find(m => m.id === selectedModel)?.name}
                     </p>
                   </div>
                 </div>
-                <button
-                  onClick={endConversation}
-                  className="px-4 py-2 text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors text-sm font-medium"
-                >
-                  会話を終了
-                </button>
+                <div className="flex items-center gap-2">
+                  {/* 모바일 설정 버튼 */}
+                  <button
+                    onClick={() => setShowMobileSettings(true)}
+                    className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={endConversation}
+                    className="px-3 py-1.5 sm:px-4 sm:py-2 text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors text-xs sm:text-sm font-medium"
+                  >
+                    終了
+                  </button>
+                </div>
               </div>
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gradient-to-b from-slate-50/50 to-white">
+              <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 space-y-3 sm:space-y-4 bg-gradient-to-b from-slate-50/50 to-white">
                 {messages.map((message) => (
                   <div
                     key={message.id}
                     className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
                     {message.role === 'assistant' && (
-                      <div className="w-8 h-8 rounded-full overflow-hidden mr-3 shrink-0 shadow-md">
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden mr-2 sm:mr-3 shrink-0 shadow-md">
                         <Image src={getAvatarUrl(selectedCharacterId)} alt="" width={32} height={32} className="w-full h-full object-cover" />
                       </div>
                     )}
-                    <div className={`max-w-[70%] ${message.role === 'user' ? '' : 'space-y-2'}`}>
+                    <div className={`max-w-[85%] sm:max-w-[70%] ${message.role === 'user' ? '' : 'space-y-2'}`}>
                       <div
-                        className={`p-4 rounded-2xl shadow-sm ${
+                        className={`px-3 py-2.5 sm:p-4 rounded-2xl shadow-sm text-sm sm:text-base ${
                           message.role === 'user'
                             ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white'
                             : 'bg-white border border-slate-200'
                         }`}
                       >
                         {message.role === 'assistant' && message.emotion && (
-                          <span className="text-lg mr-1">{getEmotionEmoji(message.emotion)}</span>
+                          <span className="text-base sm:text-lg mr-1">{getEmotionEmoji(message.emotion)}</span>
                         )}
                         <span className={message.role === 'user' ? 'text-white' : 'text-slate-700'}>
                           {message.content}
@@ -635,18 +657,18 @@ export default function ChatPage() {
                       </div>
                       {/* Generated Image */}
                       {message.image && (
-                        <div className="rounded-2xl overflow-hidden shadow-lg border border-slate-200">
+                        <div className="rounded-xl sm:rounded-2xl overflow-hidden shadow-lg border border-slate-200">
                           <img
                             src={message.image}
                             alt="Generated illustration"
-                            className="w-full h-auto max-h-96 object-contain bg-slate-100"
+                            className="w-full h-auto max-h-72 sm:max-h-96 object-contain bg-slate-100"
                           />
                         </div>
                       )}
                     </div>
                     {message.role === 'user' && (
-                      <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center ml-3 shrink-0 shadow-md">
-                        <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-700 flex items-center justify-center ml-2 sm:ml-3 shrink-0 shadow-md">
+                        <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                         </svg>
                       </div>
@@ -655,10 +677,10 @@ export default function ChatPage() {
                 ))}
                 {isLoading && (
                   <div className="flex justify-start">
-                    <div className="w-8 h-8 rounded-full overflow-hidden mr-3 shrink-0 shadow-md">
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden mr-2 sm:mr-3 shrink-0 shadow-md">
                       <Image src={getAvatarUrl(selectedCharacterId)} alt="" width={32} height={32} className="w-full h-full object-cover" />
                     </div>
-                    <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm">
+                    <div className="bg-white border border-slate-200 px-4 py-3 rounded-2xl shadow-sm">
                       <div className="flex gap-1">
                         <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
                         <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
@@ -669,16 +691,16 @@ export default function ChatPage() {
                 )}
                 {isGeneratingImage && (
                   <div className="flex justify-start">
-                    <div className="w-8 h-8 rounded-full overflow-hidden mr-3 shrink-0 shadow-md">
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden mr-2 sm:mr-3 shrink-0 shadow-md">
                       <Image src={getAvatarUrl(selectedCharacterId)} alt="" width={32} height={32} className="w-full h-full object-cover" />
                     </div>
-                    <div className="bg-gradient-to-r from-pink-50 to-purple-50 border border-purple-200 p-4 rounded-2xl shadow-sm">
+                    <div className="bg-gradient-to-r from-pink-50 to-purple-50 border border-purple-200 px-3 py-2.5 sm:p-4 rounded-2xl shadow-sm">
                       <div className="flex items-center gap-2 text-purple-600">
-                        <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <svg className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" fill="none" viewBox="0 0 24 24">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        <span className="text-sm font-medium">イラスト生成中...</span>
+                        <span className="text-xs sm:text-sm font-medium">イラスト生成中...</span>
                       </div>
                     </div>
                   </div>
@@ -687,27 +709,27 @@ export default function ChatPage() {
               </div>
 
               {/* Input */}
-              <div className="p-4 border-t border-slate-100 bg-white">
-                {/* 입력 제안 버튼 */}
-                <div className="flex flex-wrap gap-2 mb-3">
+              <div className="px-3 sm:px-4 py-3 sm:py-4 border-t border-slate-100 bg-white pb-safe">
+                {/* 입력 제안 버튼 - 스크롤 가능 */}
+                <div className="flex gap-2 mb-2 sm:mb-3 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
                   {[
                     '今日何してた？',
                     '好きな食べ物は？',
-                    '最近ハマってることある？',
-                    '一緒に遊ぼうよ',
+                    'ハマってること',
+                    '一緒に遊ぼう',
                     '写真見せて',
                   ].map((suggestion) => (
                     <button
                       key={suggestion}
                       onClick={() => setInputMessage(suggestion)}
                       disabled={isLoading}
-                      className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full transition-colors disabled:opacity-50"
+                      className="px-3 py-1.5 text-xs sm:text-sm bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full transition-colors disabled:opacity-50 whitespace-nowrap shrink-0"
                     >
                       {suggestion}
                     </button>
                   ))}
                 </div>
-                <div className="flex gap-3">
+                <div className="flex gap-2 sm:gap-3">
                   <textarea
                     ref={inputRef}
                     value={inputMessage}
@@ -720,13 +742,13 @@ export default function ChatPage() {
                       }
                     }}
                     placeholder="メッセージを入力..."
-                    className="flex-1 px-4 py-3 border border-slate-200 rounded-xl resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className="flex-1 px-3 sm:px-4 py-2.5 sm:py-3 border border-slate-200 rounded-xl resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm sm:text-base"
                     rows={1}
                   />
                   <button
                     onClick={sendMessage}
                     disabled={!inputMessage.trim() || isLoading}
-                    className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg transition-all"
+                    className="px-4 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg transition-all text-sm sm:text-base active:scale-[0.98]"
                   >
                     送信
                   </button>

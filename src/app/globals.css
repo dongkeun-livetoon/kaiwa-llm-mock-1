@@ -28,8 +28,24 @@
 }
 
 html, body {
+  height: 100%;
+  width: 100%;
+  margin: 0 !important;
+  padding: 0 !important;
   overscroll-behavior: none;
-  overflow-x: hidden;
+  overflow: hidden;
+}
+
+/* 모바일 전체화면 강제 */
+@media (max-width: 1023px) {
+  html, body, body > div, main {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    overflow: hidden !important;
+    background: white !important;
+  }
 }
 
 body {
@@ -141,4 +157,45 @@ body {
 .btn-secondary:hover {
   background: #f8fafc;
   border-color: #6366f1;
+}
+
+/* Mobile safe area padding */
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.pl-safe {
+  padding-left: env(safe-area-inset-left);
+}
+
+.pr-safe {
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Hide scrollbar but keep functionality */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Mobile touch feedback */
+@media (hover: none) {
+  .active\:scale-\[0\.98\]:active {
+    transform: scale(0.98);
+  }
+}
+
+/* Prevent pull-to-refresh on iOS */
+@supports (-webkit-touch-callout: none) {
+  html {
+    overscroll-behavior-y: contain;
+  }
 }

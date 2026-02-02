@@ -35,7 +35,7 @@ export default function Navigation() {
   const pathname = usePathname();
 
   return (
-    <nav className="w-72 bg-gradient-to-b from-indigo-950 via-indigo-900 to-purple-900 text-white min-h-screen p-6 flex flex-col">
+    <nav className="hidden lg:flex w-72 bg-gradient-to-b from-indigo-950 via-indigo-900 to-purple-900 text-white min-h-screen p-6 flex-col">
       {/* Logo */}
       <div className="mb-10">
         <div className="flex items-center gap-3 mb-2">
