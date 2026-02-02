@@ -7,13 +7,16 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "deploy": "vite build && wrangler pages deploy dist --project-name=kaiwa-frontend"
+    "deploy": "vite build && wrangler pages deploy dist --project-name=kaiwa-llm-mock"
   },
   "dependencies": {
+    "hono": "^4.11.7",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260131.0",
+    "@tailwindcss/postcss": "^4.1.18",
     "@types/node": "^20.0.0",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
@@ -22,6 +25,7 @@
     "postcss": "^8.5.3",
     "tailwindcss": "^4.1.4",
     "typescript": "^5.9.3",
-    "vite": "^7.3.0"
+    "vite": "^7.3.0",
+    "wrangler": "^4.61.1"
   }
 }

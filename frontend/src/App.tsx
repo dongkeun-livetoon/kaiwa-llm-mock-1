@@ -338,7 +338,7 @@ export default function App() {
         /* Chat Interface */
         <>
           {/* Header */}
-          <div className="px-4 py-3 border-b flex items-center justify-between bg-white/95 backdrop-blur-sm pt-safe">
+          <div className="px-4 py-3 pt-12 border-b flex items-center justify-between bg-white/95 backdrop-blur-sm">
             <div className="flex items-center gap-3">
               <img
                 src={selectedCharacter?.avatarUrl}
@@ -409,7 +409,7 @@ export default function App() {
           </div>
 
           {/* Input */}
-          <div className="p-3 border-t bg-white pb-safe">
+          <div className="p-3 pb-8 border-t bg-white">
             <div className="flex gap-2 mb-2 overflow-x-auto scrollbar-hide">
               {['今日何してた？', '好きな食べ物は？', 'ハマってること', '写真見せて'].map((suggestion) => (
                 <button
