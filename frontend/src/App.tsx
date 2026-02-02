@@ -85,8 +85,33 @@ export default function App() {
       });
 
       const judgeData = await judgeResponse.json();
-      if (!judgeData.success || !judgeData.shouldGenerate) {
+      if (!judgeData.success) {
+        console.error('Judge API error:', judgeData.error);
+        if (judgeData.rawContent) {
+          console.error('Raw content from model:', judgeData.rawContent);
+        }
         return null;
+      }
+      if (!judgeData.shouldGenerate) {
+        console.log('Judge decided not to generate:', judgeData.reason);
+        return null;
+      }
+
+      // Get reference image for vibe transfer
+      let referenceImage: string | undefined;
+      const refUrl = selectedCharacter?.referenceImageUrl;
+      if (refUrl) {
+        try {
+          const refResponse = await fetch(refUrl);
+          const refBlob = await refResponse.blob();
+          referenceImage = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(refBlob);
+          });
+        } catch (e) {
+          console.error('Failed to load reference image:', e);
+        }
       }
 
       const generateResponse = await fetch(`${API_BASE}/api/image/generate`, {
@@ -100,11 +125,14 @@ export default function App() {
           clothingState: judgeData.clothingState,
           poseState: judgeData.poseState,
           actionState: judgeData.actionState,
+          referenceImage,
+          referenceMethod: referenceImage ? 'vibe' : 'none',
         }),
       });
 
       const generateData = await generateResponse.json();
       if (!generateData.success) {
+        console.error('Image generate error:', generateData.error);
         return null;
       }
 

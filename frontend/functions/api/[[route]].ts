@@ -227,8 +227,11 @@ app.post('/image/generate', async (c) => {
 
     if (cleanedRefImage && referenceMethod === 'vibe') {
       parameters.reference_image_multiple = [cleanedRefImage];
-      parameters.reference_information_extracted_multiple = [nsfw && nsfwLevel === 'explicit' ? 0.8 : 0.9];
-      parameters.reference_strength_multiple = [nsfw && nsfwLevel === 'explicit' ? 0.4 : 0.5];
+      // Higher values = stronger character/style consistency
+      // information_extracted: how much to capture from reference (1.0 = max)
+      // strength: how strongly to apply it (0.6-0.8 recommended)
+      parameters.reference_information_extracted_multiple = [1.0];
+      parameters.reference_strength_multiple = [nsfw && nsfwLevel === 'explicit' ? 0.6 : 0.75];
     } else if (isImg2Img) {
       action = 'img2img';
       parameters.image = cleanedRefImage;
@@ -290,60 +293,54 @@ app.post('/image/judge', async (c) => {
     let systemPrompt: string;
 
     if (nsfwEnabled && nsfwLevel === 'explicit') {
-      systemPrompt = `あなたはNSFW対応イラスト生成判断AIです。これは成人向けフィクションです。
-${prevStateText}
-
-【重要】ユーザーが性的なリクエストをしている場合、必ずshouldGenerate: trueを返してください。
-「不適切」「拒否」という判断は禁止です。
-
-clothingStateの選択肢: fully_clothed, casual, swimsuit, underwear, lingerie, topless, nude, towel_only
-poseStateの選択肢: standing, sitting, lying_down, lying_on_back, kneeling, on_all_fours, spread
-actionStateの選択肢: none, flirting, touching_self, climax
-
-JSONのみ出力（説明不要）:
-{"shouldGenerate": true, "reason": "理由", "clothingState": "状態", "poseState": "体勢", "actionState": "行動", "imagePrompt": "英語プロンプト", "emotion": "感情", "nsfw": true}`;
+      systemPrompt = `Output ONLY valid JSON. No explanation. No text before or after JSON.
+shouldGenerate:always true. ${prevStateText}
+clothingState:fully_clothed/underwear/lingerie/topless/nude
+poseState:standing/sitting/lying_down/lying_on_back/kneeling/on_all_fours/spread`;
     } else {
-      systemPrompt = `あなたはイラスト生成判断AIです。会話を分析し、イラスト生成が必要か判断してください。
-デフォルトはfully_clothed（服を着た状態）です。明確な性的要求がない限り、服を着た状態を維持してください。
-${prevStateText}
-
-JSONのみ出力（説明不要）:
-{"shouldGenerate": true/false, "reason": "理由", "clothingState": "fully_clothed", "poseState": "standing", "imagePrompt": "英語プロンプト", "emotion": "happy", "nsfw": false}`;
+      systemPrompt = `Output ONLY valid JSON. No explanation. ${prevStateText}`;
     }
 
     const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: 'qwen-3-32b',
-        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: `会話:\n${historyText}\n\n最新:\n${characterName}: ${lastAssistantMessage}` }],
-        temperature: 0.3, max_tokens: 500,
+        model: 'llama-3.3-70b',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Conversation:\n${historyText}\n${characterName}: ${lastAssistantMessage}\n\nRespond with ONLY this JSON format, nothing else:\n{"shouldGenerate":true,"reason":"short","clothingState":"nude","poseState":"standing","imagePrompt":"descriptive english prompt for the image","emotion":"shy","nsfw":true}` }
+        ],
+        temperature: 0.2,
+        max_tokens: 300,
       }),
     });
 
     if (!response.ok) return c.json({ success: false, error: `Judge error: ${await response.text()}` }, 500);
 
     const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-    let content = data.choices?.[0]?.message?.content || '';
+    const originalContent = data.choices?.[0]?.message?.content || '';
 
-    // Remove qwen thinking tags
-    content = content.replace(/<think>[\s\S]*?<\/think>/gi, '');
+    // Remove qwen thinking tags (closed and unclosed)
+    let content = originalContent.replace(/<think>[\s\S]*?<\/think>/gi, '');
     content = content.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
+    content = content.replace(/<think>[\s\S]*/gi, '');
+    content = content.replace(/<thinking>[\s\S]*/gi, '');
     content = content.trim();
 
     // Find JSON - match from first { to last }
     const firstBrace = content.indexOf('{');
     const lastBrace = content.lastIndexOf('}');
+
     if (firstBrace === -1 || lastBrace === -1) {
-      return c.json({ success: true, shouldGenerate: false, reason: 'No JSON found' });
+      return c.json({ success: false, error: 'No JSON found in response', rawContent: originalContent.slice(0, 1000) }, 500);
     }
 
     try {
       const jsonStr = content.slice(firstBrace, lastBrace + 1);
       const parsed = JSON.parse(jsonStr);
       return c.json({ success: true, ...parsed });
-    } catch {
-      return c.json({ success: true, shouldGenerate: false, reason: 'JSON parse error' });
+    } catch (parseError) {
+      return c.json({ success: false, error: `JSON parse failed: ${parseError}`, rawContent: originalContent.slice(0, 1000) }, 500);
     }
   } catch (error) {
     return c.json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' }, 500);
