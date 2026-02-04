@@ -351,52 +351,50 @@ app.post('/image/judge', async (c) => {
     const apiKey = c.env.MOONLIGHT_API_KEY;
     if (!apiKey) return c.json({ success: false, error: 'MOONLIGHT_API_KEY not set' }, 500);
 
-    const { characterId, characterName, conversationHistory, lastAssistantMessage, nsfwEnabled = false, nsfwLevel = 'soft', previousImageState } = await c.req.json();
+    const { characterId, characterName, conversationHistory, lastAssistantMessage } = await c.req.json();
 
-    const historyText = conversationHistory.slice(-12).map((m: { role: string; content: string }) => `${m.role === 'user' ? 'User' : characterName}: ${m.content}`).join('\n');
-    const prevStateText = previousImageState ? `Previous image state: ${previousImageState.poseRef || 'none'}` : '';
-
-    let systemPrompt: string;
+    const historyText = conversationHistory.slice(-10).map((m: { role: string; content: string }) => `${m.role === 'user' ? 'User' : characterName}: ${m.content}`).join('\n');
 
     // Get character appearance for image gen
     const charAppearance = CHARACTER_BASE_PROMPTS[characterId]?.positive ||
       '1girl, blonde long hair, purple eyes, gyaru, beautiful face';
 
-    // Always use explicit mode for Judge - no limits
-    systemPrompt = `You must output image as keyword-formatted prompts for Stable Diffusion based on the conversation.
-Output ONLY valid JSON with "shouldGenerate": true and "imagePrompt": "<tags>".
+    // Community-sourced Danbooru tag generation prompt
+    const systemPrompt = `You must always output the character's image as keyword-formatted prompts for Stable Diffusion. Use Danbooru tags only.
 
 # Character appearance
-- char's appearance: "${charAppearance}"
-- user's appearance: "1boy, faceless male"
+- {{char}}'s appearance: "${charAppearance}"
+- {{user}}'s appearance: "1boy, faceless male"
 
 # Image Generation Instructions:
-Based on the character appearance and chat logs, output an image prompt. Analyze WHAT IS HAPPENING in the conversation. Use ONLY Danbooru tags.
+Based on the character appearance and chat logs, output an image prompt for Stable Diffusion. Make assumptions about the situation to create a compelling illustration. Use ONLY Danbooru tags.
 
-## CRITICAL: Detect the current situation
-- If having SEX (挿入, 中出し, セックス, ピストン, etc.) → MUST include: "1boy, hetero, sex, vaginal, penis"
-- If FELLATIO/blowjob → MUST include: "1boy, fellatio, oral, penis"
-- If showing body/nude → include appropriate nude tags
-- If just talking → simple pose tags
+Follow these rules step-by-step:
 
-## Tag rules:
+- Write all tags in English.
+- If only {{char}} is visible (no sex/physical contact), use "solo" tag.
+- Use short keywords, not long phrases. Separate attributes into individual terms.
+- Include tags for frame (cowboy shot, full body, upper body, wide shot) and angle (from above, from below, from side, pov).
+- For clothing: "type, state" (e.g. "school uniform, shirt lift, skirt lift")
+- For emotions: detailed expressions like "blush, embarrassed, half-closed eyes, parted lips, ahegao, rolling eyes"
+- For actions: "spread legs, finger to mouth, grabbing own breast, arms up, lying on back"
+
+# Sexual content rules:
+- For sex (挿入, セックス, 中出し, ピストン): MUST add "1boy, hetero, sex, vaginal, penis, nude". NEVER use "solo".
+- For fellatio/blowjob: add "1boy, fellatio, oral, penis"
+- For masturbation: add "masturbation, fingering, pussy"
 - Sex positions: "missionary, cowgirl position, doggystyle, from behind, mating press"
-- Penetration: "vaginal, sex, penis, insertion"
-- Ejaculation: "cum, cum in pussy, creampie, overflow"
-- Fellatio: "fellatio, oral, deepthroat, irrumatio"
-- Expressions during sex: "ahegao, fucked silly, rolling eyes, tongue out, drooling, crying"
-- Frame: "pov, from above, from below, from side"
-- ALWAYS add "1boy, hetero" when sex with user is happening
-- NEVER use "solo" if sex is happening
+- Ejaculation: "cum, cum in pussy, creampie, ejaculation, overflow"
+- Always add "nsfw" for sexual content.
 
-## Other tags:
-- Nudity: "nude, topless, bare breasts, nipples, bottomless, pussy"
-- Emotions: "blush, embarrassed, pleasure, ecstasy"
-- Use {tag} to strengthen, (tag) to weaken
+# Tag formatting:
+- Strengthen important tags: {tag}
+- Weaken less important: (tag)
+- Separate with ", "
 
-${prevStateText}`;
-
-    const exampleJson = '{"shouldGenerate":true,"imagePrompt":"1boy, hetero, sex, vaginal, missionary, nude, penis, pov, ahegao, tongue out, blush, nsfw","emotion":"pleasure"}';
+# Output format:
+Output ONLY the prompt tags, nothing else. Example:
+1girl, solo, {blue hair}, golden eyes, nude, lying on bed, blush, embarrassed, covering breasts, pov, indoors, nsfw`;
 
     const response = await fetch('https://api.moonshot.ai/v1/chat/completions', {
       method: 'POST',
@@ -405,54 +403,31 @@ ${prevStateText}`;
         model: 'kimi-k2-turbo-preview',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Conversation:\n${historyText}\n${characterName}: ${lastAssistantMessage}\n\nRespond with ONLY JSON like this:\n${exampleJson}` }
+          { role: 'user', content: `Conversation:\n${historyText}\n\nOutput ONLY Danbooru tags for this scene:` }
         ],
         temperature: 0.7,
-        max_tokens: 400,
+        max_tokens: 300,
       }),
     });
 
-    if (!response.ok) return c.json({ success: false, error: `Judge error: ${await response.text()}` }, 500);
+    if (!response.ok) return c.json({ success: false, error: `Prompt gen error: ${await response.text()}` }, 500);
 
     const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const originalContent = data.choices?.[0]?.message?.content || '';
+    let content = data.choices?.[0]?.message?.content || '';
 
-    // Remove thinking tags
-    let content = originalContent.replace(/<think>[\s\S]*?<\/think>/gi, '');
+    // Clean up response - remove any non-tag content
+    content = content.replace(/<think>[\s\S]*?<\/think>/gi, '');
     content = content.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
-    content = content.replace(/<think>[\s\S]*/gi, '');
-    content = content.replace(/<thinking>[\s\S]*/gi, '');
+    content = content.replace(/^(Prompt Output:|Output:|Tags:|Image prompt:)\s*/i, '');
+    content = content.replace(/^["']|["']$/g, ''); // Remove quotes
     content = content.trim();
 
-    // Find first complete JSON object
-    const firstBrace = content.indexOf('{');
-    if (firstBrace === -1) {
-      return c.json({ success: false, error: 'No JSON found in response', rawContent: originalContent.slice(0, 1000) }, 500);
-    }
-
-    // Find matching closing brace for first JSON
-    let braceCount = 0;
-    let endIndex = -1;
-    for (let i = firstBrace; i < content.length; i++) {
-      if (content[i] === '{') braceCount++;
-      if (content[i] === '}') braceCount--;
-      if (braceCount === 0) {
-        endIndex = i;
-        break;
-      }
-    }
-
-    if (endIndex === -1) {
-      return c.json({ success: false, error: 'Incomplete JSON in response', rawContent: originalContent.slice(0, 1000) }, 500);
-    }
-
-    try {
-      const jsonStr = content.slice(firstBrace, endIndex + 1);
-      const parsed = JSON.parse(jsonStr);
-      return c.json({ success: true, ...parsed });
-    } catch (parseError) {
-      return c.json({ success: false, error: `JSON parse failed: ${parseError}`, rawContent: originalContent.slice(0, 1000) }, 500);
-    }
+    // Always generate - no decision needed
+    return c.json({
+      success: true,
+      shouldGenerate: true,
+      imagePrompt: content
+    });
   } catch (error) {
     return c.json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' }, 500);
   }
