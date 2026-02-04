@@ -97,18 +97,17 @@ export default function App() {
         return null;
       }
 
-      // Get reference image for vibe transfer (use poseRef if available)
-      let referenceImage: string | undefined;
+      // Get pose reference image if poseRef specified
+      let poseRefImage: string | undefined;
       const poseRef = judgeData.poseRef;
 
       if (poseRef) {
-        // Load pre-made pose reference image
         try {
           const poseRefUrl = `/ref/hikari/${poseRef}.png`;
           const refResponse = await fetch(poseRefUrl);
           if (refResponse.ok) {
             const refBlob = await refResponse.blob();
-            referenceImage = await new Promise<string>((resolve) => {
+            poseRefImage = await new Promise<string>((resolve) => {
               const reader = new FileReader();
               reader.onloadend = () => resolve(reader.result as string);
               reader.readAsDataURL(refBlob);
@@ -120,8 +119,9 @@ export default function App() {
         }
       }
 
-      // Fallback to character reference if no pose ref
-      if (!referenceImage) {
+      // Character reference (optional fallback)
+      let referenceImage: string | undefined;
+      if (!poseRefImage) {
         const refUrl = selectedCharacter?.referenceImageUrl;
         if (refUrl) {
           try {
@@ -138,6 +138,8 @@ export default function App() {
         }
       }
 
+      console.log('Generating with prompt:', judgeData.imagePrompt);
+
       const generateResponse = await fetch(`${API_BASE}/api/image/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -146,12 +148,11 @@ export default function App() {
           characterId: selectedCharacterId,
           nsfw: nsfwEnabled,
           nsfwLevel,
-          topState: judgeData.topState,
-          bottomState: judgeData.bottomState,
-          poseState: judgeData.poseState,
           poseRef: judgeData.poseRef,
-          referenceImage,
+          poseRefImage, // Pre-made pose sprite for vibe transfer
+          referenceImage, // Character reference (fallback)
           referenceMethod: referenceImage ? 'vibe' : 'none',
+          useV4: true, // Use V4.5 API
         }),
       });
 
