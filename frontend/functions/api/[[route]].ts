@@ -98,6 +98,10 @@ const CHARACTER_BASE_PROMPTS: Record<string, { positive: string; negative: strin
     positive: '1girl, solo, makima, chainsaw man, long light red hair, braided ponytail, yellow eyes, ringed eyes, calm expression, mysterious smile, beige shirt, black tie, black pants, mature, 25 years old, beautiful face, slim body, medium breasts',
     negative: 'ugly, deformed, blurry, low quality, bad anatomy, extra limbs, bad hands, worst quality, wrong eye color, childish',
   },
+  'rem-001': {
+    positive: '1girl, solo, rem \\(re:zero\\), re:zero kara hajimeru isekai seikatsu, blue hair, short hair, hair over one eye, blue eyes, maid, maid headdress, maid apron, x hair ornament, hair flower, pink ribbon, frills, white apron, black dress, detached sleeves, large breasts, beautiful face, 17 years old',
+    negative: 'ugly, deformed, blurry, low quality, bad anatomy, extra limbs, bad hands, worst quality, wrong eye color, ram, pink hair',
+  },
 };
 
 const TOP_STATE_TAGS: Record<string, { positive: string; negative: string }> = {
