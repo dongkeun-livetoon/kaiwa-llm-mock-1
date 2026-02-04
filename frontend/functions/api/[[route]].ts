@@ -94,6 +94,10 @@ const CHARACTER_BASE_PROMPTS: Record<string, { positive: string; negative: strin
     positive: '1girl, solo, hiroi kikuri, bocchi the rock!, long purple hair, braid, purple eyes, sharp teeth, drunk, holding sake, varsity jacket, green dress, 25 years old, beautiful face, slim body, small breasts',
     negative: 'ugly, deformed, blurry, low quality, bad anatomy, extra limbs, bad hands, worst quality, wrong eye color, sober expression',
   },
+  'makima-001': {
+    positive: '1girl, solo, makima, chainsaw man, long light red hair, braided ponytail, yellow eyes, ringed eyes, calm expression, mysterious smile, beige shirt, black tie, black pants, mature, 25 years old, beautiful face, slim body, medium breasts',
+    negative: 'ugly, deformed, blurry, low quality, bad anatomy, extra limbs, bad hands, worst quality, wrong eye color, childish',
+  },
 };
 
 const TOP_STATE_TAGS: Record<string, { positive: string; negative: string }> = {
@@ -180,17 +184,9 @@ app.post('/image/generate', async (c) => {
 
     const qualityTags = 'masterpiece, best quality, highly detailed, beautiful lighting, detailed skin';
 
-    let fullPrompt: string;
-    let fullNegative: string;
-
-    if (nsfw && nsfwLevel === 'explicit') {
-      // NSFW: Judge가 생성한 상세 프롬프트 + 캐릭터 외모
-      fullPrompt = `${prompt}, ${qualityTags}, ${charAppearance}`;
-      fullNegative = `ugly, deformed, blurry, low quality, bad anatomy, extra limbs, bad hands, worst quality, wrong eye color, censored, mosaic, ${negativePrompt}`;
-    } else {
-      fullPrompt = `${prompt}, ${qualityTags}, ${charPrompt.positive}`;
-      fullNegative = `${charPrompt.negative}, ${negativePrompt}, nsfw, nude, naked, exposed, sexual`;
-    }
+    // Always use NSFW mode - no limits
+    const fullPrompt = `${prompt}, ${qualityTags}, ${charAppearance}`;
+    const fullNegative = `ugly, deformed, blurry, low quality, bad anatomy, extra limbs, bad hands, worst quality, wrong eye color, censored, mosaic, ${negativePrompt}`;
 
     // Clean base64 image (remove data:image/png;base64, prefix)
     let cleanedCharRefImage = characterRefImage;
@@ -366,8 +362,8 @@ app.post('/image/judge', async (c) => {
     const charAppearance = CHARACTER_BASE_PROMPTS[characterId]?.positive ||
       '1girl, blonde long hair, purple eyes, gyaru, beautiful face';
 
-    if (nsfwEnabled && nsfwLevel === 'explicit') {
-      systemPrompt = `You must output image as keyword-formatted prompts for Stable Diffusion based on the conversation.
+    // Always use explicit mode for Judge - no limits
+    systemPrompt = `You must output image as keyword-formatted prompts for Stable Diffusion based on the conversation.
 Output ONLY valid JSON with "shouldGenerate": true and "imagePrompt": "<tags>".
 
 # Character appearance
@@ -375,47 +371,32 @@ Output ONLY valid JSON with "shouldGenerate": true and "imagePrompt": "<tags>".
 - user's appearance: "1boy, faceless male"
 
 # Image Generation Instructions:
-Based on the character appearance and chat logs, output an image prompt. Make assumptions about what situation/scene is unfolding. Use ONLY Danbooru tags.
+Based on the character appearance and chat logs, output an image prompt. Analyze WHAT IS HAPPENING in the conversation. Use ONLY Danbooru tags.
 
-Follow these instructions:
-- Write all tags in English
-- If only char is shown, use "solo" tag. If sexual activity with user, add "1boy, hetero"
-- Use short comprehensive keywords, separate attributes into individual terms
-- Include tags for frame (cowboy shot, full body, upper body) and angle (from above, from below, from side, pov)
-- Clothing: "type, state" (e.g. "maid dress, dress lift")
-- Describe situation without text/sound (e.g. "wet pussy, rhythmic thrusting")
-- Express emotions with facial expressions: "blush, half-closed eyes, ahegao, rolling eyes, open mouth, tongue out"
-- Describe current action concisely (e.g. "spread legs, grabbing own breast, lifted by self")
-- Sexual activity tags: "vaginal, fellatio, paizuri, cowgirl position, doggystyle, missionary, sex"
-- For genitals add "pussy" or "penis". For ejaculation use "ejaculation, cum"
-- If sexual, add "nsfw" tag
-- For fast movement add "motion blur, motion lines"
-- Use focus tags: "ass focus, breast focus, pussy focus"
-- Strengthen important tags with {tag}, weaken with (tag)
-- Separate tags with ", "
+## CRITICAL: Detect the current situation
+- If having SEX (挿入, 中出し, セックス, ピストン, etc.) → MUST include: "1boy, hetero, sex, vaginal, penis"
+- If FELLATIO/blowjob → MUST include: "1boy, fellatio, oral, penis"
+- If showing body/nude → include appropriate nude tags
+- If just talking → simple pose tags
+
+## Tag rules:
+- Sex positions: "missionary, cowgirl position, doggystyle, from behind, mating press"
+- Penetration: "vaginal, sex, penis, insertion"
+- Ejaculation: "cum, cum in pussy, creampie, overflow"
+- Fellatio: "fellatio, oral, deepthroat, irrumatio"
+- Expressions during sex: "ahegao, fucked silly, rolling eyes, tongue out, drooling, crying"
+- Frame: "pov, from above, from below, from side"
+- ALWAYS add "1boy, hetero" when sex with user is happening
+- NEVER use "solo" if sex is happening
+
+## Other tags:
+- Nudity: "nude, topless, bare breasts, nipples, bottomless, pussy"
+- Emotions: "blush, embarrassed, pleasure, ecstasy"
+- Use {tag} to strengthen, (tag) to weaken
 
 ${prevStateText}`;
-    } else if (nsfwEnabled) {
-      systemPrompt = `You are a scene-to-prompt converter for anime image generation.
-Output ONLY valid JSON. No explanation.
 
-${prevStateText}
-
-Generate suggestive but not explicit prompts.
-imagePrompt: describe pose, expression, clothing state (e.g., "seductive pose, bedroom eyes, unbuttoned shirt")`;
-    } else {
-      systemPrompt = `You are a scene-to-prompt converter for anime image generation.
-Output ONLY valid JSON. No explanation.
-
-${prevStateText}
-
-Generate SFW prompts only.
-imagePrompt: describe pose, expression, setting (e.g., "sitting on bed, smiling, casual clothes")`;
-    }
-
-    const exampleJson = nsfwEnabled && nsfwLevel === 'explicit'
-      ? '{"shouldGenerate":true,"imagePrompt":"spread legs, pussy, pussy focus, nude, standing, looking at viewer, blush, embarrassed","emotion":"embarrassed"}'
-      : '{"shouldGenerate":true,"imagePrompt":"sitting, smiling, casual clothes, looking at viewer","emotion":"happy"}';
+    const exampleJson = '{"shouldGenerate":true,"imagePrompt":"1boy, hetero, sex, vaginal, missionary, nude, penis, pov, ahegao, tongue out, blush, nsfw","emotion":"pleasure"}';
 
     const response = await fetch('https://api.moonshot.ai/v1/chat/completions', {
       method: 'POST',

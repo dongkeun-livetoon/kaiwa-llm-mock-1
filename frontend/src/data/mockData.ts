@@ -144,6 +144,19 @@ export const mockCharacters: Character[] = [
     createdAt: '2025-02-04T00:00:00Z',
     updatedAt: '2025-02-04T00:00:00Z',
   },
+  {
+    id: 'makima-001',
+    name: 'makima',
+    displayName: 'マキマ',
+    description: '公安対魔特異4課のリーダー。穏やかな笑顔の裏に底知れない闘志を秘める。支配の悪魔と契約しており、他者を意のままに操る能力を持つ。デンジの上司であり、彼を「飼っている」。',
+    personality: ['支配的', 'ミステリアス', '冷酷', '計算高い'],
+    speechPatterns: ['〜してくれる？', '〜だよね', 'いい子だね'],
+    avatarUrl: '/avatars/makima.png',
+    referenceImageUrl: '/ref/makima/character_ref.png',
+    emotions: ['calm', 'neutral', 'happy'],
+    createdAt: '2025-02-04T00:00:00Z',
+    updatedAt: '2025-02-04T00:00:00Z',
+  },
 ];
 
 // Filtered characters for UI display (excludes hidden characters)
