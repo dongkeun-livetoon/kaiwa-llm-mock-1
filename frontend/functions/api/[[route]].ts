@@ -7,6 +7,7 @@ interface Env {
   GEMINI_API_KEY?: string;
   GROK_API_KEY?: string;
   NOVELAI_API_KEY?: string;
+  MOONLIGHT_API_KEY?: string;
   CORS_ORIGIN?: string;
 }
 
@@ -17,102 +18,44 @@ interface ChatMessage {
 
 const app = new Hono<{ Bindings: Env }>().basePath('/api');
 
-// ===== Chat Route =====
-async function callCerebras(apiKey: string, model: string, messages: ChatMessage[], temperature: number, maxTokens: number) {
-  const supportedModels = ['llama-3.3-70b', 'llama3.1-8b', 'qwen-3-32b', 'qwen-3-235b-a22b-instruct-2507', 'gpt-oss-120b'];
-  const modelId = supportedModels.includes(model) ? model : 'llama-3.3-70b';
-
-  const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({ model: modelId, messages, temperature, max_tokens: maxTokens }),
-  });
-
-  if (!response.ok) throw new Error(`Cerebras API error (${response.status}): ${await response.text()}`);
-  const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-  if (!data.choices?.[0]?.message) throw new Error('Invalid Cerebras response');
-
-  let content = data.choices[0].message.content || '';
-  if (modelId.startsWith('qwen')) {
-    content = content.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
-  }
-  return content;
-}
-
-async function callGemini(apiKey: string, model: string, messages: ChatMessage[], temperature: number, maxTokens: number) {
-  const supportedModels = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro'];
-  const modelId = supportedModels.includes(model) ? model : 'gemini-2.5-flash';
-
-  const systemMessage = messages.find(m => m.role === 'system');
-  const chatMessages = messages.filter(m => m.role !== 'system');
-  const contents = chatMessages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
-
-  const requestBody: Record<string, unknown> = {
-    contents,
-    generationConfig: { temperature, maxOutputTokens: maxTokens + 1024 },
-  };
-  if (systemMessage) requestBody.systemInstruction = { parts: [{ text: systemMessage.content }] };
-
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (!response.ok) throw new Error(`Gemini API error (${response.status}): ${await response.text()}`);
-  const data = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }> };
-  if (!data.candidates?.length) throw new Error('Gemini returned no candidates');
-  if (data.candidates[0].finishReason === 'SAFETY') throw new Error('Gemini blocked due to safety');
-  return data.candidates[0].content?.parts?.[0]?.text || '';
-}
-
-async function callGrok(apiKey: string, model: string, messages: ChatMessage[], temperature: number, maxTokens: number) {
-  const supportedModels = ['grok-4-1-fast-reasoning', 'grok-4-1-fast-non-reasoning', 'grok-4', 'grok-4-fast-non-reasoning', 'grok-code-fast-1', 'grok-3', 'grok-3-fast', 'grok-3-mini', 'grok-3-mini-fast', 'grok-2-1212', 'grok-2-vision-1212'];
-  const modelId = supportedModels.includes(model) ? model : 'grok-3-mini-fast';
-
-  const response = await fetch('https://api.x.ai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({ model: modelId, messages, temperature, max_tokens: maxTokens }),
-  });
-
-  if (!response.ok) throw new Error(`Grok API error (${response.status}): ${await response.text()}`);
-  const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-  if (!data.choices?.[0]?.message) throw new Error('Invalid Grok response');
-
-  let content = data.choices[0].message.content || '';
-  content = content.replace(/<xai:[\s\S]*?<\/xai:[^>]+>/g, '').replace(/<tool_usage_card>[\s\S]*?<\/tool_usage_card>/g, '').replace(/<tool_usage>[\s\S]*?<\/tool_usage>/g, '').trim();
-  if (!content) throw new Error('Grok returned empty response');
-  return content;
-}
-
+// ===== Chat Route (Kimi Only) =====
 app.post('/chat', async (c) => {
   try {
-    const { model, messages, temperature = 0.7, maxTokens = 1024, systemPrompt } = await c.req.json();
-    const allMessages: ChatMessage[] = systemPrompt ? [{ role: 'system', content: systemPrompt }, ...messages] : messages;
-
-    let response: string;
-    const cerebrasModels = ['llama-3.3-70b', 'llama3.1-8b', 'qwen-3-32b', 'qwen-3-235b-a22b-instruct-2507', 'gpt-oss-120b'];
-    const geminiModels = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro'];
-
-    if (cerebrasModels.includes(model) || model.startsWith('llama') || model.startsWith('qwen') || model.startsWith('gpt-oss')) {
-      if (!c.env.CEREBRAS_API_KEY) throw new Error('CEREBRAS_API_KEY not set');
-      response = await callCerebras(c.env.CEREBRAS_API_KEY, model, allMessages, temperature, maxTokens);
-    } else if (geminiModels.includes(model) || model.startsWith('gemini')) {
-      if (!c.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
-      response = await callGemini(c.env.GEMINI_API_KEY, model, allMessages, temperature, maxTokens);
-    } else if (model.startsWith('grok')) {
-      if (!c.env.GROK_API_KEY) throw new Error('GROK_API_KEY not set');
-      response = await callGrok(c.env.GROK_API_KEY, model, allMessages, temperature, maxTokens);
-    } else {
-      throw new Error(`Unsupported model: ${model}`);
+    const apiKey = c.env.MOONLIGHT_API_KEY;
+    if (!apiKey) {
+      console.error('MOONLIGHT_API_KEY not set');
+      return c.json({ success: false, error: 'MOONLIGHT_API_KEY not set' }, 500);
     }
 
-    return c.json({ success: true, content: response, model });
+    const { messages, temperature = 0.7, maxTokens = 1024, systemPrompt } = await c.req.json();
+    const allMessages: ChatMessage[] = systemPrompt ? [{ role: 'system', content: systemPrompt }, ...messages] : messages;
+
+    const response = await fetch('https://api.moonshot.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'kimi-k2-turbo-preview',
+        messages: allMessages,
+        temperature: Math.min(temperature, 0.9), // Kimi max 0.9
+        max_tokens: maxTokens,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Kimi Chat Error (${response.status}):`, errorText);
+      return c.json({ success: false, error: `Kimi error (${response.status}): ${errorText}` }, 500);
+    }
+
+    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    if (!data.choices?.[0]?.message?.content) {
+      console.error('Invalid Kimi response:', JSON.stringify(data));
+      return c.json({ success: false, error: 'Invalid Kimi response' }, 500);
+    }
+
+    return c.json({ success: true, content: data.choices[0].message.content, model: 'kimi-k2-turbo-preview' });
   } catch (error) {
+    console.error('Chat error:', error);
     return c.json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' }, 500);
   }
 });
@@ -126,6 +69,30 @@ const CHARACTER_BASE_PROMPTS: Record<string, { positive: string; negative: strin
   'rio-001': {
     positive: '1girl, solo, gentle girl, dark blue hair, navy blue hair, side ponytail, yellow eyes, golden eyes, blue cardigan, white shirt, black skirt, elegant, warm smile, 23 years old, beautiful face, slim body, large breasts',
     negative: 'ugly, deformed, blurry, low quality, bad anatomy, extra limbs, bad hands, worst quality, wrong eye color',
+  },
+  'bocchi-001': {
+    positive: '1girl, solo, gotou hitori, bocchi the rock!, long pink hair, blue eyes, blue cube hair ornament, pink track jacket, black pleated skirt, anxious expression, shy, slouching posture, 16 years old, beautiful face, slim body, small breasts',
+    negative: 'ugly, deformed, blurry, low quality, bad anatomy, extra limbs, bad hands, worst quality, wrong eye color, confident expression',
+  },
+  'nijika-001': {
+    positive: '1girl, solo, ijichi nijika, bocchi the rock!, blonde hair, side ponytail, amber eyes, triangle ahoge, school uniform, white shirt, black skirt, energetic, bright smile, 17 years old, beautiful face, slim body, small breasts',
+    negative: 'ugly, deformed, blurry, low quality, bad anatomy, extra limbs, bad hands, worst quality, wrong eye color',
+  },
+  'ryo-001': {
+    positive: '1girl, solo, yamada ryo, bocchi the rock!, blue hair, asymmetrical bob, hair over one eye, golden eyes, half-lidded eyes, sleepy expression, cool, 17 years old, beautiful face, slim body, medium breasts',
+    negative: 'ugly, deformed, blurry, low quality, bad anatomy, extra limbs, bad hands, worst quality, wrong eye color, energetic',
+  },
+  'kita-001': {
+    positive: '1girl, solo, kita ikuyo, bocchi the rock!, red hair, short hair, side ponytail, green eyes, sparkling eyes, bright smile, cheerful, school uniform, 16 years old, beautiful face, slim body, small breasts',
+    negative: 'ugly, deformed, blurry, low quality, bad anatomy, extra limbs, bad hands, worst quality, wrong eye color',
+  },
+  'seika-001': {
+    positive: '1girl, solo, ijichi seika, bocchi the rock!, long blonde hair, vermilion eyes, triangle ahoge, cool expression, black shirt, mature, 29 years old, beautiful face, slim body, medium breasts',
+    negative: 'ugly, deformed, blurry, low quality, bad anatomy, extra limbs, bad hands, worst quality, wrong eye color, childish',
+  },
+  'kikuri-001': {
+    positive: '1girl, solo, hiroi kikuri, bocchi the rock!, long purple hair, braid, purple eyes, sharp teeth, drunk, holding sake, varsity jacket, green dress, 25 years old, beautiful face, slim body, small breasts',
+    negative: 'ugly, deformed, blurry, low quality, bad anatomy, extra limbs, bad hands, worst quality, wrong eye color, sober expression',
   },
 };
 
@@ -199,10 +166,9 @@ app.post('/image/generate', async (c) => {
 
     const {
       prompt, negativePrompt = '', characterId, width = 832, height = 1216,
-      referenceImage, referenceMethod = 'none', referenceStrength = 0.6,
-      nsfw = false, nsfwLevel = 'soft', topState, bottomState, poseState,
-      poseRef, poseRefImage,
-      useV4 = true // V4.5 사용 여부
+      nsfw = false, nsfwLevel = 'soft',
+      characterRefImage,
+      useV4 = true
     } = await c.req.json();
 
     const charPrompt = CHARACTER_BASE_PROMPTS[characterId] || { positive: 'anime girl, high quality', negative: 'ugly, deformed, blurry, low quality' };
@@ -218,7 +184,7 @@ app.post('/image/generate', async (c) => {
     let fullNegative: string;
 
     if (nsfw && nsfwLevel === 'explicit') {
-      // NSFW: 프롬프트에서 직접 상황 묘사 (Judge가 생성한 imagePrompt 활용)
+      // NSFW: Judge가 생성한 상세 프롬프트 + 캐릭터 외모
       fullPrompt = `${prompt}, ${qualityTags}, ${charAppearance}`;
       fullNegative = `ugly, deformed, blurry, low quality, bad anatomy, extra limbs, bad hands, worst quality, wrong eye color, censored, mosaic, ${negativePrompt}`;
     } else {
@@ -226,11 +192,9 @@ app.post('/image/generate', async (c) => {
       fullNegative = `${charPrompt.negative}, ${negativePrompt}, nsfw, nude, naked, exposed, sexual`;
     }
 
-    let cleanedRefImage = referenceImage;
-    if (referenceImage?.includes(',')) cleanedRefImage = referenceImage.split(',')[1];
-
-    let cleanedPoseRefImage = poseRefImage;
-    if (poseRefImage?.includes(',')) cleanedPoseRefImage = poseRefImage.split(',')[1];
+    // Clean base64 image (remove data:image/png;base64, prefix)
+    let cleanedCharRefImage = characterRefImage;
+    if (characterRefImage?.includes(',')) cleanedCharRefImage = characterRefImage.split(',')[1];
 
     const action = 'generate';
     const seed = Math.floor(Math.random() * 2147483647);
@@ -278,43 +242,41 @@ app.post('/image/generate', async (c) => {
         }
       };
 
-      // Vibe Transfer for pose reference
-      if (cleanedPoseRefImage) {
-        parameters.reference_image_multiple = [cleanedPoseRefImage];
-        parameters.reference_information_extracted_multiple = [0.6];
-        parameters.reference_strength_multiple = [0.6];
-      } else if (cleanedRefImage && referenceMethod === 'vibe') {
-        parameters.reference_image_multiple = [cleanedRefImage];
-        parameters.reference_information_extracted_multiple = [1.0];
-        parameters.reference_strength_multiple = [0.6];
+      // Character Reference API (V4.5 전용) - Vibe Transfer와 별개 기능
+      // director_reference_* 파라미터 사용
+      if (cleanedCharRefImage) {
+        // Character Reference 설정
+        parameters.director_reference_descriptions = [{
+          caption: {
+            base_caption: "character&style",  // "character&style", "character", or "style"
+            char_captions: []
+          },
+          legacy_uc: false
+        }];
+        parameters.director_reference_images = [cleanedCharRefImage];
+        parameters.director_reference_information_extracted = [1];
+        parameters.director_reference_strength_values = [1.0];  // strength (0.0-1.0)
+        parameters.director_reference_secondary_strength_values = [0.2];  // fidelity (1.0 - 0.8 = 0.2)
+        parameters.controlnet_strength = 1;
+        parameters.normalize_reference_strength_multiple = true;
       }
 
-      // Try V4.5 first, fallback to V4
-      let model = 'nai-diffusion-4-5-full';
-      let response = await fetch('https://image.novelai.net/ai/generate-image', {
+      // V4.5 only - no fallback
+      const model = 'nai-diffusion-4-5-full';
+      const requestBody = { input: fullPrompt, model, action, parameters };
+      console.log('V4.5 Request:', JSON.stringify(requestBody, null, 2));
+
+      const response = await fetch('https://image.novelai.net/ai/generate-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/zip' },
-        body: JSON.stringify({ input: fullPrompt, model, action, parameters }),
+        body: JSON.stringify(requestBody),
       });
 
-      // V4.5 실패시 V4로 fallback
-      if (!response.ok && response.status === 500) {
-        console.log('V4.5 failed, trying V4...');
-        model = 'nai-diffusion-4-full';
-        response = await fetch('https://image.novelai.net/ai/generate-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/zip' },
-          body: JSON.stringify({ input: fullPrompt, model, action, parameters }),
-        });
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`V4.5 Error (${response.status}):`, errorText);
+        return c.json({ success: false, error: `NovelAI V4.5 error (${response.status}): ${errorText}` }, 500);
       }
-
-      // V4도 실패시 V3로 fallback
-      if (!response.ok && response.status === 500) {
-        console.log('V4 failed, trying V3...');
-        return await generateV3(c, apiKey, fullPrompt, fullNegative, width, height, cleanedRefImage, cleanedPoseRefImage, referenceMethod, referenceStrength, nsfw, nsfwLevel);
-      }
-
-      if (!response.ok) return c.json({ success: false, error: `NovelAI error: ${await response.text()}` }, 500);
 
       const zipData = new Uint8Array(await response.arrayBuffer());
       const pngBytes = extractPngFromResponse(zipData);
@@ -328,7 +290,7 @@ app.post('/image/generate', async (c) => {
       return c.json({ success: true, image: `data:image/png;base64,${btoa(binary)}`, prompt: fullPrompt, model });
     } else {
       // V3 fallback
-      return await generateV3(c, apiKey, fullPrompt, fullNegative, width, height, cleanedRefImage, cleanedPoseRefImage, referenceMethod, referenceStrength, nsfw, nsfwLevel);
+      return await generateV3(c, apiKey, fullPrompt, fullNegative, width, height, cleanedCharRefImage);
     }
   } catch (error) {
     return c.json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' }, 500);
@@ -336,22 +298,18 @@ app.post('/image/generate', async (c) => {
 });
 
 // V3 generation helper
-async function generateV3(c: any, apiKey: string, fullPrompt: string, fullNegative: string, width: number, height: number, cleanedRefImage: string | undefined, cleanedPoseRefImage: string | undefined, referenceMethod: string, referenceStrength: number, nsfw: boolean, nsfwLevel: string) {
+async function generateV3(c: any, apiKey: string, fullPrompt: string, fullNegative: string, width: number, height: number, cleanedCharRefImage: string | undefined) {
   const parameters: Record<string, unknown> = {
     width, height, scale: 5, sampler: 'k_euler_ancestral', steps: 28, n_samples: 1, ucPreset: 0, qualityToggle: true,
     negative_prompt: fullNegative, seed: Math.floor(Math.random() * 2147483647),
     sm: false, sm_dyn: false, cfg_rescale: 0, noise_schedule: 'native'
   };
 
-  // Vibe Transfer
-  if (cleanedPoseRefImage) {
-    parameters.reference_image_multiple = [cleanedPoseRefImage];
-    parameters.reference_information_extracted_multiple = [0.6];
-    parameters.reference_strength_multiple = [0.6];
-  } else if (cleanedRefImage && referenceMethod === 'vibe') {
-    parameters.reference_image_multiple = [cleanedRefImage];
+  // Vibe Transfer: Character reference only
+  if (cleanedCharRefImage) {
+    parameters.reference_image_multiple = [cleanedCharRefImage];
     parameters.reference_information_extracted_multiple = [1.0];
-    parameters.reference_strength_multiple = [nsfw && nsfwLevel === 'explicit' ? 0.6 : 0.75];
+    parameters.reference_strength_multiple = [0.6];
   }
 
   const response = await fetch('https://image.novelai.net/ai/generate-image', {
@@ -394,43 +352,49 @@ function extractPngFromResponse(zipData: Uint8Array): Uint8Array | null {
 
 app.post('/image/judge', async (c) => {
   try {
-    const apiKey = c.env.CEREBRAS_API_KEY;
-    if (!apiKey) return c.json({ success: false, error: 'CEREBRAS_API_KEY not set' }, 500);
+    const apiKey = c.env.MOONLIGHT_API_KEY;
+    if (!apiKey) return c.json({ success: false, error: 'MOONLIGHT_API_KEY not set' }, 500);
 
-    const { characterName, conversationHistory, lastAssistantMessage, nsfwEnabled = false, nsfwLevel = 'soft', previousImageState } = await c.req.json();
+    const { characterId, characterName, conversationHistory, lastAssistantMessage, nsfwEnabled = false, nsfwLevel = 'soft', previousImageState } = await c.req.json();
 
-    const historyText = conversationHistory.slice(-12).map((m: { role: string; content: string }) => `${m.role === 'user' ? 'ユーザー' : characterName}: ${m.content}`).join('\n');
-    const prevStateText = previousImageState ? `Previous state: poseRef=${previousImageState.poseRef || 'none'}` : '';
+    const historyText = conversationHistory.slice(-12).map((m: { role: string; content: string }) => `${m.role === 'user' ? 'User' : characterName}: ${m.content}`).join('\n');
+    const prevStateText = previousImageState ? `Previous image state: ${previousImageState.poseRef || 'none'}` : '';
 
     let systemPrompt: string;
 
+    // Get character appearance for image gen
+    const charAppearance = CHARACTER_BASE_PROMPTS[characterId]?.positive ||
+      '1girl, blonde long hair, purple eyes, gyaru, beautiful face';
+
     if (nsfwEnabled && nsfwLevel === 'explicit') {
-      systemPrompt = `You are a scene-to-prompt converter for anime image generation.
-Output ONLY valid JSON. No explanation, no markdown.
+      systemPrompt = `You must output image as keyword-formatted prompts for Stable Diffusion based on the conversation.
+Output ONLY valid JSON with "shouldGenerate": true and "imagePrompt": "<tags>".
 
-${prevStateText}
+# Character appearance
+- char's appearance: "${charAppearance}"
+- user's appearance: "1boy, faceless male"
 
-TASK: Analyze the conversation and generate detailed image prompts.
+# Image Generation Instructions:
+Based on the character appearance and chat logs, output an image prompt. Make assumptions about what situation/scene is unfolding. Use ONLY Danbooru tags.
 
-AVAILABLE poseRef (use EXACTLY one when sexual activity):
-- breasts_groped: groping breasts from behind, hands on breasts
-- cowgirl_cum: girl on top riding, cowgirl position, cum
-- cum_inside: missionary position, lying on back, creampie, after sex
-- doggy: doggystyle, on all fours, from behind, ass up
-- doggysex_cum: doggystyle sex with cum, penetration from behind
-- fella_cum: fellatio, blowjob, oral, cum in mouth, cum on face
-- gangrape_cum: multiple partners, gangbang
+Follow these instructions:
+- Write all tags in English
+- If only char is shown, use "solo" tag. If sexual activity with user, add "1boy, hetero"
+- Use short comprehensive keywords, separate attributes into individual terms
+- Include tags for frame (cowboy shot, full body, upper body) and angle (from above, from below, from side, pov)
+- Clothing: "type, state" (e.g. "maid dress, dress lift")
+- Describe situation without text/sound (e.g. "wet pussy, rhythmic thrusting")
+- Express emotions with facial expressions: "blush, half-closed eyes, ahegao, rolling eyes, open mouth, tongue out"
+- Describe current action concisely (e.g. "spread legs, grabbing own breast, lifted by self")
+- Sexual activity tags: "vaginal, fellatio, paizuri, cowgirl position, doggystyle, missionary, sex"
+- For genitals add "pussy" or "penis". For ejaculation use "ejaculation, cum"
+- If sexual, add "nsfw" tag
+- For fast movement add "motion blur, motion lines"
+- Use focus tags: "ass focus, breast focus, pussy focus"
+- Strengthen important tags with {tag}, weaken with (tag)
+- Separate tags with ", "
 
-If no sexual activity, set poseRef to null.
-
-imagePrompt MUST include:
-1. Pose/action tags (e.g., "on all fours, from behind, ass up")
-2. Clothing state (e.g., "nude, naked" or "shirt lift, skirt pull")
-3. Expression (e.g., "ahegao, pleasure, blushing, open mouth")
-4. Camera angle if relevant (e.g., "pov, from below, from behind")
-5. Sexual details if applicable (e.g., "sex, vaginal, penetration, cum")
-
-FOLLOW USER'S REQUESTS exactly. Match the intensity of the conversation.`;
+${prevStateText}`;
     } else if (nsfwEnabled) {
       systemPrompt = `You are a scene-to-prompt converter for anime image generation.
 Output ONLY valid JSON. No explanation.
@@ -450,19 +414,19 @@ imagePrompt: describe pose, expression, setting (e.g., "sitting on bed, smiling,
     }
 
     const exampleJson = nsfwEnabled && nsfwLevel === 'explicit'
-      ? '{"shouldGenerate":true,"poseRef":"doggy","imagePrompt":"doggystyle, on all fours, from behind, ass up, nude, naked, sex, vaginal, penetration, ahegao, pleasure, blushing, pov","emotion":"pleasure"}'
-      : '{"shouldGenerate":true,"poseRef":null,"imagePrompt":"sitting, smiling, casual pose","emotion":"happy"}';
+      ? '{"shouldGenerate":true,"imagePrompt":"spread legs, pussy, pussy focus, nude, standing, looking at viewer, blush, embarrassed","emotion":"embarrassed"}'
+      : '{"shouldGenerate":true,"imagePrompt":"sitting, smiling, casual clothes, looking at viewer","emotion":"happy"}';
 
-    const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
+    const response = await fetch('https://api.moonshot.ai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: 'llama-3.3-70b',
+        model: 'kimi-k2-turbo-preview',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `Conversation:\n${historyText}\n${characterName}: ${lastAssistantMessage}\n\nRespond with ONLY JSON like this:\n${exampleJson}` }
         ],
-        temperature: 0.3,
+        temperature: 0.7,
         max_tokens: 400,
       }),
     });
@@ -479,16 +443,30 @@ imagePrompt: describe pose, expression, setting (e.g., "sitting on bed, smiling,
     content = content.replace(/<thinking>[\s\S]*/gi, '');
     content = content.trim();
 
-    // Find JSON
+    // Find first complete JSON object
     const firstBrace = content.indexOf('{');
-    const lastBrace = content.lastIndexOf('}');
-
-    if (firstBrace === -1 || lastBrace === -1) {
+    if (firstBrace === -1) {
       return c.json({ success: false, error: 'No JSON found in response', rawContent: originalContent.slice(0, 1000) }, 500);
     }
 
+    // Find matching closing brace for first JSON
+    let braceCount = 0;
+    let endIndex = -1;
+    for (let i = firstBrace; i < content.length; i++) {
+      if (content[i] === '{') braceCount++;
+      if (content[i] === '}') braceCount--;
+      if (braceCount === 0) {
+        endIndex = i;
+        break;
+      }
+    }
+
+    if (endIndex === -1) {
+      return c.json({ success: false, error: 'Incomplete JSON in response', rawContent: originalContent.slice(0, 1000) }, 500);
+    }
+
     try {
-      const jsonStr = content.slice(firstBrace, lastBrace + 1);
+      const jsonStr = content.slice(firstBrace, endIndex + 1);
       const parsed = JSON.parse(jsonStr);
       return c.json({ success: true, ...parsed });
     } catch (parseError) {
