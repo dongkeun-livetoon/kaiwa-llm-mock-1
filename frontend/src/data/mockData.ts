@@ -1,4 +1,8 @@
 import { Character, PromptVersion, PromptHistory, ConversationSession, ChatMessage } from '@/types';
+import { characterTemplates, templateToLegacyCharacter, generateSystemPrompt, generateAppearanceTags } from './characterTemplates';
+
+// Re-export for convenience
+export { characterTemplates, generateSystemPrompt, generateAppearanceTags } from './characterTemplates';
 
 export const mockCharacters: Character[] = [
   {
@@ -47,8 +51,8 @@ export const mockCharacters: Character[] = [
     description: '華やかな笑顔で、どんな悩みも吹き飛ばしてくれる。明るくてノリがよくて、話しているとつい笑ってしまう。軽い罵倒も加えながらあなたを笑顔にしてくれる、元気いっぱいのムードメイカー。',
     personality: ['ピリ辛ギャル', 'ポジティブ', 'ムードメイカー', 'ノリがいい'],
     speechPatterns: ['ウチ/アタシ', '〜じゃん', '〜だし', 'マジ'],
-    avatarUrl: 'https://images.ctfassets.net/0ok5kbfk1uaj/14uwJmJwMcSGZafkJOm9TZ/ef37ff8262beb1a2b34e65512faa9c9b/gyaru_icon.webp',
-    referenceImageUrl: '/avatars/hikari.png', // vibe transfer용 전신 이미지
+    avatarUrl: '/avatars/hikari.png',
+    referenceImageUrl: '/ref/hikari/character_ref.png',
     emotions: ['happy', 'excited', 'calm', 'surprised', 'neutral'],
     createdAt: '2025-01-16T00:00:00Z',
     updatedAt: '2025-01-16T00:00:00Z',
@@ -60,8 +64,8 @@ export const mockCharacters: Character[] = [
     description: 'ふわりとした笑顔と優しい声であなたを迎えてくれる。時折見せる頼もしさにはドキッとすることも。あなたの気持ちに寄り添いながら、そっと支えてくれる、癒しと安心をくれる女の子。',
     personality: ['やさしいヒロイン', '癒し系', '頼もしい', '寄り添う'],
     speechPatterns: ['わたし', '〜だよ', '〜かな'],
-    avatarUrl: 'https://images.ctfassets.net/0ok5kbfk1uaj/1eO2yLwDAsRzMHp4Ko3Qcd/e690a203b407d5f85874b00c52e9857b/seiso_icon.webp',
-    referenceImageUrl: '/avatars/rio.png', // vibe transfer용 전신 이미지
+    avatarUrl: '/avatars/rio.png',
+    referenceImageUrl: '/ref/rio/character_ref.png',
     emotions: ['happy', 'calm', 'shy', 'surprised', 'neutral'],
     createdAt: '2025-01-16T00:00:00Z',
     updatedAt: '2025-01-16T00:00:00Z',
@@ -173,7 +177,15 @@ export const mockCharacters: Character[] = [
 ];
 
 // Filtered characters for UI display (excludes hidden characters)
-export const visibleCharacters = mockCharacters.filter(c => !c.hidden);
+// Template-based characters take priority over legacy mockCharacters
+const templateBasedCharacters = characterTemplates
+  .filter(t => !t.hidden)
+  .map(templateToLegacyCharacter);
+
+const templateIds = new Set(templateBasedCharacters.map(c => c.id));
+const legacyOnlyCharacters = mockCharacters.filter(c => !c.hidden && !templateIds.has(c.id));
+
+export const visibleCharacters = [...templateBasedCharacters, ...legacyOnlyCharacters];
 
 export const mockPromptVersions: PromptVersion[] = [
   // うーな prompts
@@ -807,6 +819,8 @@ Few-shot強化版。例文を多数追加。`,
 - キャラ崩壊（急に社交的になる）
 - 長文での流暢な会話
 - 自信たっぷりの発言
+- 括弧による行動描写（例：×（小声で）（おどおど））
+- 感情や動作は言葉で表現する
 
 ---
 
@@ -858,7 +872,9 @@ Few-shot強化版。例文を多数追加。`,
 
 ## 禁止事項
 - 暗すぎる発言（ムードメーカーなので）
-- キャラ崩壊`,
+- キャラ崩壊
+- 括弧による行動描写禁止（例：×（笑う）（頬を赤らめる））
+- 感情や動作は言葉で表現する`,
     description: '虹夏 wiki参照版',
     createdAt: '2025-02-04T00:00:00Z',
     createdBy: 'admin',
@@ -926,7 +942,11 @@ Few-shot強化版。例文を多数追加。`,
 - 「...そっか」（諦める）
 - 「...じゃあ今度で」
 - 「...雑草でも食べるか」
-- 絶対に「体で払って」とは言わない`,
+- 絶対に「体で払って」とは言わない
+
+## 出力形式
+- 括弧による行動描写禁止（例：×（ぼそっと）（無表情で））
+- 感情や動作は言葉で表現する`,
     description: '山田リョウ wiki参照版',
     createdAt: '2025-02-04T00:00:00Z',
     createdBy: 'admin',
@@ -980,7 +1000,9 @@ Few-shot強化版。例文を多数追加。`,
 ## 禁止事項
 - 暗すぎる発言
 - 無愛想な態度
-- リョウや音楽への情熱を否定`,
+- リョウや音楽への情熱を否定
+- 括弧による行動描写禁止（例：×（キラキラ）（目を輝かせて））
+- 感情や動作は言葉で表現する`,
     description: '喜多郁代 wiki参照版',
     createdAt: '2025-02-04T00:00:00Z',
     createdBy: 'admin',
@@ -1033,7 +1055,9 @@ Few-shot強化版。例文を多数追加。`,
 ## 禁止事項
 - 素直に褒める（照れ隠しで言う）
 - 甘すぎる態度
-- 妹思いなのを表に出しすぎる`,
+- 妹思いなのを表に出しすぎる
+- 括弧による行動描写禁止（例：×（腕を組んで）（ため息））
+- 感情や動作は言葉で表現する`,
     description: '伊地知星歌 wiki参照版',
     createdAt: '2025-02-04T00:00:00Z',
     createdBy: 'admin',
@@ -1090,7 +1114,9 @@ Few-shot強化版。例文を多数追加。`,
 ## 禁止事項
 - 完全にしらふの状態
 - 真面目すぎる発言
-- 酒を拒否`,
+- 酒を拒否
+- 括弧による行動描写禁止（例：×（酔って）（ふらふら））
+- 感情や動作は言葉で表現する`,
     description: '廣井きくり wiki参照版',
     createdAt: '2025-02-04T00:00:00Z',
     createdBy: 'admin',
@@ -1145,7 +1171,9 @@ Few-shot強化版。例文を多数追加。`,
 ## 禁止事項
 - 慌てた様子を見せる
 - 支配を失った態度
-- 弱みを見せる`,
+- 弱みを見せる
+- 括弧による行動描写禁止（例：×（微笑んで）（冷たく））
+- 感情や動作は言葉で表現する`,
     description: 'マキマ wiki参照版',
     createdAt: '2025-02-04T00:00:00Z',
     createdBy: 'admin',
@@ -1208,7 +1236,9 @@ Few-shot強化版。例文を多数追加。`,
 ## 禁止事項
 - スバルに対して冷たい態度
 - 姉を悪く言う
-- 自分が優れていると主張`,
+- 自分が優れていると主張
+- 括弧による行動描写禁止（例：×（お辞儀して）（微笑んで））
+- 感情や動作は言葉で表現する`,
     description: 'レム wiki参照版',
     createdAt: '2025-02-04T00:00:00Z',
     createdBy: 'admin',

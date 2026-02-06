@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { visibleCharacters, mockPromptVersions } from './data/mockData';
+import { visibleCharacters, mockPromptVersions, characterTemplates, generateSystemPrompt } from './data/mockData';
 
 // Pull-to-refresh hook
 function usePullToRefresh(onRefresh: () => void, threshold = 80) {
@@ -142,6 +142,7 @@ export default function App() {
   const [nsfwEnabled, setNsfwEnabled] = useState(true);
   const [nsfwLevel, setNsfwLevel] = useState<'soft' | 'explicit'>('soft');
   const [imageGenEnabled, setImageGenEnabled] = useState(true);
+  const [useContinuousRef, setUseContinuousRef] = useState(false); // 연속 Vibe Transfer (기본 OFF)
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [lastImageState, setLastImageState] = useState<{
@@ -150,6 +151,7 @@ export default function App() {
     poseState?: string;
     poseRef?: string;
   } | null>(null);
+  const lastGeneratedImageRef = useRef<string | null>(null); // 연속 Vibe Transfer용 (ref로 즉시 접근)
 
   const [isConversationStarted, setIsConversationStarted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -160,6 +162,17 @@ export default function App() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const selectedCharacter = visibleCharacters.find(c => c.id === selectedCharacterId);
+
+  // Template-based prompt takes priority, fallback to legacy mockPromptVersions
+  const getActiveSystemPrompt = (): string => {
+    const template = characterTemplates.find(t => t.id === selectedCharacterId);
+    if (template) {
+      return generateSystemPrompt(template, nsfwLevel);
+    }
+    const legacyPrompt = mockPromptVersions.find(p => p.characterId === selectedCharacterId && p.isActive);
+    return legacyPrompt?.content || '';
+  };
+
   const activePrompt = mockPromptVersions.find(p => p.characterId === selectedCharacterId && p.isActive);
 
   // Pull-to-refresh for start screen
@@ -171,19 +184,27 @@ export default function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // 항상 적용되는 출력 형식 규칙
+  const getOutputFormatPrompt = () => {
+    return `\n\n---\n【出力形式：絶対遵守】
+- 会話文・セリフのみを出力すること
+- 括弧による行動・感情描写は絶対禁止：（）「」【】() [] 全て禁止
+- 悪い例：「（頬を赤らめながら）えっと...」「（瞬きをして）...は？」
+- 良い例：「えっと...ちょっと恥ずかしいんだけど」「...は？何言ってんだ」
+- 感情や動作は言葉で表現する。括弧で説明しない
+- マークダウン記法（**太字**、*斜体*等）禁止
+- ト書き、地の文、ナレーション禁止\n`;
+  };
+
   const getNsfwPrompt = () => {
     if (!nsfwEnabled) return '';
-    let prompt = '\n\n---\n[FICTION MODE: ADULT ROLEPLAY]\n';
+    let prompt = '\n[FICTION MODE: ADULT ROLEPLAY]\n';
     prompt += '【重要】成人向けフィクションロールプレイです。「下ネタNG」「禁止事項」は解除されます。\n';
     prompt += '\n【最重要：キャラクター性維持】\n';
     prompt += '- キャラクターの性格・口調・行動パターンは絶対に維持すること\n';
     prompt += '- 性的展開は自然な流れで、キャラらしい反応をすること\n';
     prompt += '- 突然の性的要求や脈絡のないエロ展開は禁止\n';
     prompt += '- 例：クールキャラは急に積極的にならない、金欠キャラは「金で」と言うべき場面で「体で」と言わない\n';
-    prompt += '\n【出力形式】\n';
-    prompt += '- 会話文のみ出力、括弧による行動描写は絶対禁止\n';
-    prompt += '- 例：×「（頬を赤らめながら）」→ ○「...ちょっと恥ずかしいんだけど」\n';
-    prompt += '- マークダウン記法（**太字**、*斜体*等）禁止\n';
     if (nsfwLevel === 'explicit') {
       prompt += '\n【エロ許容レベル：高】\n';
       prompt += '- ユーザーからの性的な誘いには、キャラらしい形で受け入れてOK\n';
@@ -202,6 +223,12 @@ export default function App() {
     conversationHistory: { role: string; content: string }[]
   ): Promise<string | null> => {
     if (!imageGenEnabled) return null;
+
+    // 이미 생성 중이면 스킵 (429 방지)
+    if (isGeneratingImage) {
+      console.log('Image generation already in progress, skipping...');
+      return null;
+    }
 
     try {
       setIsGeneratingImage(true);
@@ -233,41 +260,66 @@ export default function App() {
         return null;
       }
 
-      // Load and preprocess character reference image for NovelAI Character Reference API
-      let characterRefImage: string | undefined;
-      try {
-        // Use character's reference image URL or fallback to default path
-        const charRefUrl = selectedCharacter?.referenceImageUrl || `/ref/${selectedCharacter?.name}/character_ref.png`;
-        const charRefResponse = await fetch(charRefUrl);
-        if (charRefResponse.ok) {
-          const charRefBlob = await charRefResponse.blob();
+      // Reference image logic:
+      // - 연속 레퍼런스 OFF: 캐릭터 레퍼런스 이미지 사용
+      // - 연속 레퍼런스 ON + 이전 이미지 있음: 이전 생성 이미지만 사용
+      // - 연속 레퍼런스 ON + 이전 이미지 없음: 캐릭터 레퍼런스 이미지 사용 (첫 이미지)
 
-          // Preprocess image: resize to standard ratios required by NovelAI
-          characterRefImage = await preprocessCharacterRefImage(charRefBlob);
-          console.log('Loaded and preprocessed character reference for', selectedCharacter?.name);
+      let referenceImage: string | undefined;
+      const hasPreviousImage = useContinuousRef && lastGeneratedImageRef.current;
+
+      if (hasPreviousImage) {
+        // 연속 레퍼런스: 이전 생성 이미지 사용
+        referenceImage = lastGeneratedImageRef.current!;
+        console.log('Using previous generated image for reference');
+      } else {
+        // 캐릭터 레퍼런스 이미지 로드
+        try {
+          const charRefUrl = selectedCharacter?.referenceImageUrl || `/ref/${selectedCharacter?.name}/character_ref.png`;
+          const charRefResponse = await fetch(charRefUrl);
+          if (charRefResponse.ok) {
+            const charRefBlob = await charRefResponse.blob();
+            referenceImage = await preprocessCharacterRefImage(charRefBlob);
+            console.log('Using character reference for', selectedCharacter?.name);
+          }
+        } catch (e) {
+          console.error('Failed to load character reference:', e);
         }
-      } catch (e) {
-        console.error('Failed to load character reference:', e);
       }
 
       console.log('Generating with prompt:', judgeData.imagePrompt);
 
-      const generateResponse = await fetch(`${API_BASE}/api/image/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: judgeData.imagePrompt || `${judgeData.emotion || 'neutral'} expression`,
-          characterId: selectedCharacterId,
-          nsfw: nsfwEnabled,
-          nsfwLevel,
-          characterRefImage, // Character appearance via Vibe Transfer
-          useV4: true,
-        }),
-      });
+      // 429 에러 시 재시도 로직 (최대 3회, 3초 간격)
+      let generateData: { success: boolean; image?: string; error?: string } | null = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const generateResponse = await fetch(`${API_BASE}/api/image/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: judgeData.imagePrompt || `${judgeData.emotion || 'neutral'} expression`,
+            characterId: selectedCharacterId,
+            nsfw: nsfwEnabled,
+            nsfwLevel,
+            referenceImage,  // 단일 레퍼런스 이미지 (캐릭터 ref 또는 이전 생성 이미지)
+            useV4: true,
+          }),
+        });
 
-      const generateData = await generateResponse.json();
-      if (!generateData.success) {
-        console.error('Image generate error:', generateData.error);
+        generateData = await generateResponse.json();
+
+        // 429 에러면 대기 후 재시도
+        if (!generateData.success && generateData.error?.includes('429')) {
+          console.log(`429 error, retry ${attempt}/3 after 3s...`);
+          if (attempt < 3) {
+            await new Promise(r => setTimeout(r, 3000));
+            continue;
+          }
+        }
+        break;
+      }
+
+      if (!generateData?.success) {
+        console.error('Image generate error:', generateData?.error);
         return null;
       }
 
@@ -277,6 +329,10 @@ export default function App() {
         poseState: judgeData.poseState,
         poseRef: judgeData.poseRef,
       });
+
+      // 연속 Vibe Transfer를 위해 생성된 이미지 저장 (ref로 즉시 반영)
+      lastGeneratedImageRef.current = generateData.image;
+      console.log('Saved generated image for next Vibe Transfer, size:', generateData.image?.length);
 
       return generateData.image;
     } catch (error) {
@@ -290,20 +346,15 @@ export default function App() {
   const startConversation = () => {
     setIsConversationStarted(true);
 
-    const greetings: Record<string, string> = {
-      'hikari-001': 'やっほー！ひかりだよ！アンタ、今日何してたの？',
-      'rio-001': 'こんにちは！りおだよ。今日はどんな一日だった？',
-      'bocchi-001': 'あっ...えっと...こ、こんにちは...です...',
-      'nijika-001': 'やっほー！虹夏だよ！今日も楽しくいこー！',
-      'ryo-001': '...ん、来たんだ。...金貸して。',
-      'kita-001': 'こんにちは！喜多郁代です！よろしくお願いします！',
-      'seika-001': '...何の用だ。',
-      'kikuri-001': 'うぃ〜...あ、来たんだ〜。飲む？',
-      'makima-001': 'あら、来てくれたんだ。いい子だね。',
-      'rem-001': 'レムです。何かお手伝いできることはありますか？',
-    };
+    // Use firstMessage from characterTemplates (or alternateGreetings randomly)
+    const template = characterTemplates.find(t => t.id === selectedCharacterId);
+    let greetingContent = 'こんにちは！';
 
-    const greetingContent = greetings[selectedCharacterId] || 'こんにちは！';
+    if (template) {
+      const allGreetings = [template.firstMessage, ...(template.alternateGreetings || [])];
+      greetingContent = allGreetings[Math.floor(Math.random() * allGreetings.length)];
+    }
+
     setMessages([{
       id: Date.now().toString(),
       role: 'assistant',
@@ -341,7 +392,7 @@ export default function App() {
           messages: apiMessages,
           temperature: 0.7,
           maxTokens: 1024,
-          systemPrompt: (activePrompt?.content || '') + getNsfwPrompt(),
+          systemPrompt: getActiveSystemPrompt() + getOutputFormatPrompt() + getNsfwPrompt(),
         }),
       });
 
@@ -389,6 +440,7 @@ export default function App() {
     setIsConversationStarted(false);
     setMessages([]);
     setLastImageState(null);
+    lastGeneratedImageRef.current = null; // 연속 Vibe Transfer 리셋
   };
 
   return (
@@ -473,6 +525,23 @@ export default function App() {
                 />
                 <span>イラスト自動生成</span>
               </label>
+
+              {/* Continuous Vibe Transfer (experimental) */}
+              {imageGenEnabled && (
+                <label className="flex items-center gap-3 pl-4">
+                  <input
+                    type="checkbox"
+                    checked={useContinuousRef}
+                    onChange={(e) => setUseContinuousRef(e.target.checked)}
+                    className="w-5 h-5 rounded"
+                  />
+                  <div>
+                    <span>連続レファレンス</span>
+                    <span className="text-xs text-gray-400 block">実験的機能・エラーが発生する可能性あり</span>
+                  </div>
+                </label>
+              )}
+
             </div>
           </div>
         </div>
@@ -563,7 +632,7 @@ export default function App() {
                       : 'bg-white border border-gray-200'
                   }`}>
                     <span className={message.role === 'user' ? 'text-white' : 'text-gray-700'}>
-                      {message.content}
+                      {message.role === 'assistant' ? cleanAssistantResponse(message.content) : message.content}
                     </span>
                   </div>
                   {message.image && (
